@@ -44,6 +44,12 @@ El sistema podrá mostrar información meteorológica relevante asociada a la ru
 ### RF-09. Registro de eventos
 El sistema deberá registrar información básica sobre los eventos detectados (riesgos, alertas y tiempos) para poder hacer una evaluación y análisis posterior.
 
+### RF-10. Obtención de posición
+El sistema deberá obtener la posición actual (latitud, longitud y altitud) mediante una fuente externa (GPS de un smartphone) para operar con el tráfico cercano.
+
+### RF-11. Altitud fiable (por si falla el GPS)
+El sistema deberá funcionar en un modo seguro si la altitud no está disponible o es poco fiable, operando con el cálculo basado en posición horizontal.
+
 ---
 
 ## Requisitos no funcionales
