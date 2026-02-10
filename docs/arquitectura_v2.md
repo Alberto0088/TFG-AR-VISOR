@@ -1,4 +1,4 @@
-# Arquitectura del sistema (v1)
+# Arquitectura del sistema (v2)
 
 ## Visión general
 
@@ -50,7 +50,7 @@ flowchart LR
   end
 
   subgraph OWN[Posicion propia y mapeo]
-    OWNPROV[Usuario (Avión)]
+    OWNPROV[Ownship Provider]
     MAP[Coordinate Mapper Geo a Unity]
   end
 
