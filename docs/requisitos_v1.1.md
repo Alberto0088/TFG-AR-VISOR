@@ -50,6 +50,9 @@ El sistema deberá obtener la posición actual (latitud, longitud y altitud) med
 ### RF-11. Altitud fiable (por si falla el GPS)
 El sistema deberá funcionar en un modo seguro si la altitud no está disponible o es poco fiable, operando con el cálculo basado en posición horizontal.
 
+### RF-12. Actualización y validación de la posición
+El sistema deberá actualizar periódicamente la posición del avión propio y validar los datos recibidos, descartando valores inconsistentes o desactualizados para evitar cálculos erróneos.
+
 ---
 
 ## Requisitos no funcionales
@@ -71,6 +74,9 @@ El sistema deberá desarrollarse de forma que pueda ejecutarse en distintos ento
 
 ### RNF-06. Trazabilidad
 Cada funcionalidad implementada deberá poder relacionarse con los requisitos definidos en este documento.
+
+### RNF-07. Tolerancia a pérdidas temporales de localización
+El sistema deberá tolerar pérdidas temporales de la localización del usuario, manteniendo la última posición válida durante un intervalo limitado y notificando al usuario si la situación persiste.
 
 ---
 
