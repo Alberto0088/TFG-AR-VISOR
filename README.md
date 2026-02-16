@@ -1,7 +1,17 @@
-# TFG-AR-VISOR
+# TFG – AR Visor para apoyo a pilotos 
 
-¿Y si el piloto pudiera ver el riesgo antes de que exista?
-Este proyecto explora cómo la realidad aumentada puede aportar una capa extra de información crítica directamente en el visor de un piloto en vuelo.
+> ¿Y si el piloto pudiera ver el riesgo antes de que exista?
+
+Este proyecto explora cómo la realidad aumentada puede aportar una capa extra de información crítica directamente en el visor de vuelo.  
+
+El objetivo es diseñar y desarrollar un prototipo capaz de integrar tráfico aéreo en tiempo real, alertas de colisión, meteorología y avisos de entorno, todo ello presentado de forma clara y no intrusiva para mejorar la conciencia situacional durante el vuelo.
+
+- Integración de datos en tiempo real  
+- Cálculo de riesgo de colisión  
+- Visualización en realidad aumentada  
+- Arquitectura modular y trazable  
+
+Proyecto desarrollado como Trabajo de Fin de Grado en Ingeniería Informática.
 
 ## Documentación
 
