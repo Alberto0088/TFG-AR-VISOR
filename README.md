@@ -1,5 +1,7 @@
 # TFG-AR-VISOR
-TFG visor para pilotos para evitar colisiones + ofrecer datos relevantes para el pilotaje
+
+¿Y si el piloto pudiera ver el riesgo antes de que exista?
+Este proyecto explora cómo la realidad aumentada puede aportar una capa extra de información crítica directamente en el visor de un piloto en vuelo.
 
 ## Documentación
 
