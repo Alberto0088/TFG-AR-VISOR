@@ -1,3 +1,4 @@
+using TFG.ARVisor.Domain.Models;
 using TMPro;
 using UnityEngine;
 
@@ -11,39 +12,10 @@ namespace TFG.ARVisor.Presentation.HUD
         [SerializeField] private TMP_Text alertText;
         [SerializeField] private TMP_Text reticleText;
 
-        [Header("Simulation")]
-        [SerializeField] private bool useSimulation = true;
-        [SerializeField] private float simulationRefreshSeconds = 2f;
-
-        private float timer;
-        private int simulationStep;
-
         private void Start()
         {
-            RenderDefaultHud();
-        }
-
-        private void Update()
-        {
-            if (!useSimulation)
-            {
-                return;
-            }
-
-            timer += Time.deltaTime;
-
-            if (timer >= simulationRefreshSeconds)
-            {
-                timer = 0f;
-                UpdateSimulation();
-            }
-        }
-
-        private void RenderDefaultHud()
-        {
-            UpdateSystemPanel("ONLINE", "SIM", "3D", "1 Hz");
-            UpdateTrafficPanel(0, "--", "LOW");
-            UpdateAlertPanel("NO ALERTS", RiskLevel.Low);
+            RenderSystemStatus("ONLINE", "SIM", "3D", "1 Hz");
+            RenderTraffic(new TrafficSnapshot(0, "--", RiskLevel.Low, "NO ALERTS"));
 
             if (reticleText != null)
             {
@@ -51,7 +23,7 @@ namespace TFG.ARVisor.Presentation.HUD
             }
         }
 
-        public void UpdateSystemPanel(string status, string gpsStatus, string mode, string updateRate)
+        public void RenderSystemStatus(string status, string gpsStatus, string mode, string updateRate)
         {
             if (systemText == null)
             {
@@ -65,20 +37,20 @@ namespace TFG.ARVisor.Presentation.HUD
                 $"UPD  {updateRate}";
         }
 
-        public void UpdateTrafficPanel(int nearbyAircraft, string nearestDistance, string risk)
+        public void RenderTraffic(TrafficSnapshot snapshot)
         {
-            if (trafficText == null)
+            if (trafficText != null)
             {
-                return;
+                trafficText.text =
+                    $"TRAF {snapshot.NearbyAircraft}\n" +
+                    $"NEAR {snapshot.NearestDistance}\n" +
+                    $"RISK {FormatRisk(snapshot.RiskLevel)}";
             }
 
-            trafficText.text =
-                $"TRAF {nearbyAircraft}\n" +
-                $"NEAR {nearestDistance}\n" +
-                $"RISK {risk}";
+            RenderAlert(snapshot.AlertMessage, snapshot.RiskLevel);
         }
 
-        public void UpdateAlertPanel(string message, RiskLevel riskLevel)
+        private void RenderAlert(string message, RiskLevel riskLevel)
         {
             if (alertText == null)
             {
@@ -103,43 +75,22 @@ namespace TFG.ARVisor.Presentation.HUD
             }
         }
 
-        private void UpdateSimulation()
+        private string FormatRisk(RiskLevel riskLevel)
         {
-            simulationStep++;
-
-            switch (simulationStep % 4)
+            switch (riskLevel)
             {
-                case 0:
-                    UpdateSystemPanel("ONLINE", "SIM", "3D", "1 Hz");
-                    UpdateTrafficPanel(0, "--", "LOW");
-                    UpdateAlertPanel("NO ALERTS", RiskLevel.Low);
-                    break;
+                case RiskLevel.Low:
+                    return "LOW";
 
-                case 1:
-                    UpdateSystemPanel("ONLINE", "SIM", "3D", "1 Hz");
-                    UpdateTrafficPanel(2, "8.4 KM", "LOW");
-                    UpdateAlertPanel("NO ALERTS", RiskLevel.Low);
-                    break;
+                case RiskLevel.Medium:
+                    return "MED";
 
-                case 2:
-                    UpdateSystemPanel("ONLINE", "SIM", "3D", "1 Hz");
-                    UpdateTrafficPanel(3, "3.1 KM", "MED");
-                    UpdateAlertPanel("TRAFFIC ADVISORY", RiskLevel.Medium);
-                    break;
+                case RiskLevel.High:
+                    return "HIGH";
 
-                case 3:
-                    UpdateSystemPanel("ONLINE", "SIM", "3D", "1 Hz");
-                    UpdateTrafficPanel(1, "1.2 KM", "HIGH");
-                    UpdateAlertPanel("COLLISION RISK", RiskLevel.High);
-                    break;
+                default:
+                    return "--";
             }
         }
-    }
-
-    public enum RiskLevel
-    {
-        Low,
-        Medium,
-        High
     }
 }
