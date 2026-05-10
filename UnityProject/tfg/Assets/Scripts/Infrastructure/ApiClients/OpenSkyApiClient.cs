@@ -147,17 +147,26 @@ namespace TFG.ARVisor.Infrastructure.ApiClients
 
             List<AircraftGeoState> aircraft = OpenSkyParser.ParseAircraft(json);
 
-            Debug.Log($"OpenSky aircraft parsed: {aircraft.Count}");
+            List<AircraftGeoState> nearbyAircraft = TrafficFilter.FilterByDistance(
+                ownshipState,
+                aircraft,
+                searchRadiusKm
+            );
 
-            double? nearestDistanceKm = GetNearestAircraftDistanceKm(ownshipState, aircraft);
+            Debug.Log(
+                $"OpenSky aircraft parsed: {aircraft.Count}. " +
+                $"Inside {searchRadiusKm:0} KM: {nearbyAircraft.Count}"
+            );
+
+            double? nearestDistanceKm = GetNearestAircraftDistanceKm(ownshipState, nearbyAircraft);
 
             string nearestDistanceText = nearestDistanceKm.HasValue
                 ? $"{nearestDistanceKm.Value:0.0} KM"
                 : "--";
 
-            UpdateHudWithTraffic(aircraft.Count, nearestDistanceText);
+            UpdateHudWithTraffic(nearbyAircraft.Count, nearestDistanceText);
 
-            LogAircraftList(ownshipState, aircraft);
+            LogAircraftList(ownshipState, nearbyAircraft);
 
             if (logRawJsonPreview)
             {
