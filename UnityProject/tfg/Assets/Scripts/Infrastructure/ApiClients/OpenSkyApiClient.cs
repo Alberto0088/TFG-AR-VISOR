@@ -1,30 +1,32 @@
 /*
  * OpenSkyApiClient.cs
  * ------------------------------------------------------------
- * Este script realiza la primera conexión real con la API de OpenSky.
+ * Este script realiza la conexión con la API de OpenSky para obtener
+ * tráfico aéreo actual cerca de la posición propia del usuario/avión.
  *
- * Su función es:
- * 1. Obtener la posición actual del usuario/avión desde ExternalGpsProvider.
- * 2. Calcular una bounding box alrededor de esa posición.
- * 3. Construir la URL de consulta para OpenSky.
- * 4. Realizar una petición HTTP real.
- * 5. Mostrar en consola si se ha recibido JSON correctamente.
- *
- * De momento NO interpreta todavía todos los datos de las aeronaves.
- * Este script solo valida que Unity puede conectarse a OpenSky y recibir
- * tráfico aéreo actual dentro de la zona calculada.
+ * Funcionamiento general:
+ * 1. Obtiene la posición actual desde ExternalGpsProvider.
+ * 2. Calcula una bounding box alrededor de esa posición.
+ * 3. Construye la URL de consulta para OpenSky.
+ * 4. Realiza una petición HTTP real.
+ * 5. Convierte el JSON recibido en aeronaves internas mediante OpenSkyParser.
+ * 6. Calcula la distancia de cada aeronave respecto a la posición propia.
+ * 7. Actualiza el HUD con el número de aeronaves y la distancia de la más cercana.
  *
  * Se conecta con:
  * - ExternalGpsProvider: obtiene la posición propia.
  * - BoundingBoxBuilder: genera la zona de búsqueda.
- * - GeoBoundingBox: contiene los límites de la consulta.
- * - OpenSkyParser: se añadirá después para convertir el JSON en modelos propios.
+ * - OpenSkyParser: convierte el JSON de OpenSky en AircraftGeoState.
+ * - GeoDistanceCalculator: calcula distancia entre usuario y aeronaves.
+ * - HudController: muestra el resumen de tráfico real en el visor.
  */
 
 using System.Collections;
+using System.Collections.Generic;
 using TFG.ARVisor.Domain.Models;
 using TFG.ARVisor.Domain.Services;
 using TFG.ARVisor.Infrastructure.Gps;
+using TFG.ARVisor.Presentation.HUD;
 using UnityEngine;
 using UnityEngine.Networking;
 
@@ -34,10 +36,11 @@ namespace TFG.ARVisor.Infrastructure.ApiClients
     {
         [Header("References")]
         [SerializeField] private ExternalGpsProvider gpsProvider;
+        [SerializeField] private HudController hudController;
 
         [Header("OpenSky Settings")]
         [SerializeField] private string openSkyBaseUrl = "https://opensky-network.org/api/states/all";
-        [SerializeField] private double searchRadiusKm = 50.0;
+        [SerializeField] private double searchRadiusKm = 100.0;
 
         [Header("Request Settings")]
         [SerializeField] private float refreshSeconds = 15f;
@@ -45,7 +48,7 @@ namespace TFG.ARVisor.Infrastructure.ApiClients
 
         [Header("Debug Settings")]
         [SerializeField] private bool logUrlToConsole = true;
-        [SerializeField] private bool logRawJsonPreview = true;
+        [SerializeField] private bool logRawJsonPreview = false;
 
         private Coroutine pollingCoroutine;
 
@@ -120,31 +123,41 @@ namespace TFG.ARVisor.Infrastructure.ApiClients
             if (request.result != UnityWebRequest.Result.Success)
             {
                 Debug.LogWarning($"OpenSky request failed: {request.responseCode} - {request.error}");
+                UpdateHudWithTraffic(0, "--");
                 yield break;
             }
 
             string json = request.downloadHandler.text;
 
-            LogOpenSkyResponse(json);
+            ProcessOpenSkyResponse(json, ownshipState);
         }
 
         /// <summary>
-        /// Muestra información básica del JSON recibido para confirmar que la conexión funciona.
+        /// Procesa el JSON recibido desde OpenSky, convierte las aeronaves a modelos internos
+        /// y actualiza el HUD con el número de aeronaves reales y la distancia de la más cercana.
         /// </summary>
-        private void LogOpenSkyResponse(string json)
+        private void ProcessOpenSkyResponse(string json, OwnshipGeoState ownshipState)
         {
             if (string.IsNullOrWhiteSpace(json))
             {
                 Debug.LogWarning("OpenSky response is empty.");
+                UpdateHudWithTraffic(0, "--");
                 return;
             }
 
-            int estimatedAircraftCount = EstimateAircraftCount(json);
+            List<AircraftGeoState> aircraft = OpenSkyParser.ParseAircraft(json);
 
-            Debug.Log(
-                $"OpenSky response received. JSON length: {json.Length} chars. " +
-                $"Estimated aircraft count: {estimatedAircraftCount}"
-            );
+            Debug.Log($"OpenSky aircraft parsed: {aircraft.Count}");
+
+            double? nearestDistanceKm = GetNearestAircraftDistanceKm(ownshipState, aircraft);
+
+            string nearestDistanceText = nearestDistanceKm.HasValue
+                ? $"{nearestDistanceKm.Value:0.0} KM"
+                : "--";
+
+            UpdateHudWithTraffic(aircraft.Count, nearestDistanceText);
+
+            LogAircraftList(ownshipState, aircraft);
 
             if (logRawJsonPreview)
             {
@@ -154,40 +167,76 @@ namespace TFG.ARVisor.Infrastructure.ApiClients
         }
 
         /// <summary>
-        /// Estima de forma provisional cuántas aeronaves vienen en el JSON.
-        /// El parser real se implementará después, porque OpenSky devuelve arrays internos complejos.
+        /// Muestra en consola las aeronaves detectadas con sus datos principales y distancia.
         /// </summary>
-        private int EstimateAircraftCount(string json)
+        private void LogAircraftList(OwnshipGeoState ownshipState, List<AircraftGeoState> aircraft)
         {
-            if (!json.Contains("\"states\"") || json.Contains("\"states\":null"))
+            foreach (AircraftGeoState item in aircraft)
             {
-                return 0;
+                double distanceKm = GeoDistanceCalculator.DistanceKm(ownshipState, item);
+
+                Debug.Log(
+                    $"Aircraft -> " +
+                    $"ID: {item.Id}, " +
+                    $"Callsign: {item.Callsign}, " +
+                    $"Country: {item.OriginCountry}, " +
+                    $"Distance: {distanceKm:0.0} KM, " +
+                    $"Lat: {item.Latitude}, " +
+                    $"Lon: {item.Longitude}, " +
+                    $"Alt: {item.AltitudeMeters}, " +
+                    $"Vel: {item.VelocityMps}, " +
+                    $"Heading: {item.HeadingDegrees}"
+                );
+            }
+        }
+
+        /// <summary>
+        /// Busca la aeronave más cercana a la posición propia y devuelve su distancia en kilómetros.
+        /// </summary>
+        private double? GetNearestAircraftDistanceKm(
+            OwnshipGeoState ownshipState,
+            List<AircraftGeoState> aircraft)
+        {
+            if (ownshipState == null || aircraft == null || aircraft.Count == 0)
+            {
+                return null;
             }
 
-            int statesStart = json.IndexOf("\"states\":[[", System.StringComparison.Ordinal);
+            double nearestDistanceKm = double.MaxValue;
 
-            if (statesStart < 0)
+            foreach (AircraftGeoState item in aircraft)
             {
-                return 0;
-            }
+                double distanceKm = GeoDistanceCalculator.DistanceKm(ownshipState, item);
 
-            int count = 1;
-            int searchIndex = statesStart;
-
-            while (true)
-            {
-                int nextIndex = json.IndexOf("],[", searchIndex, System.StringComparison.Ordinal);
-
-                if (nextIndex < 0)
+                if (distanceKm < nearestDistanceKm)
                 {
-                    break;
+                    nearestDistanceKm = distanceKm;
                 }
-
-                count++;
-                searchIndex = nextIndex + 3;
             }
 
-            return count;
+            return nearestDistanceKm == double.MaxValue
+                ? null
+                : nearestDistanceKm;
+        }
+
+        /// <summary>
+        /// Actualiza el HUD con el resumen básico de tráfico real recibido desde OpenSky.
+        /// </summary>
+        private void UpdateHudWithTraffic(int aircraftCount, string nearestDistanceText)
+        {
+            if (hudController == null)
+            {
+                return;
+            }
+
+            TrafficSnapshot snapshot = new TrafficSnapshot(
+                nearbyAircraft: aircraftCount,
+                nearestDistance: nearestDistanceText,
+                riskLevel: RiskLevel.Low,
+                alertMessage: aircraftCount > 0 ? "TRAFFIC DETECTED" : "NO ALERTS"
+            );
+
+            hudController.RenderTraffic(snapshot);
         }
     }
 }
