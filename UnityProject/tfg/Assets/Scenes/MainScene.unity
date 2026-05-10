@@ -138,7 +138,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &74395272
 Transform:
   m_ObjectHideFlags: 0
@@ -161,7 +161,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 74395271}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 448764cefb56a314b9520d62d12e8d68, type: 3}
   m_Name: 
@@ -318,7 +318,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!114 &671746210
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -326,14 +326,14 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 671746209}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: f72782098afb26e48a2a02aa757f0ac0, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
   gpsProvider: {fileID: 294844435}
   openSkyBaseUrl: https://opensky-network.org/api/states/all
-  searchRadiusKm: 50
+  searchRadiusKm: 100
   refreshSeconds: 3
   logToConsole: 1
 --- !u!4 &671746211
@@ -1190,6 +1190,58 @@ Transform:
   - {fileID: 1164606082}
   m_Father: {fileID: 729130564}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &2058325479
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 2058325481}
+  - component: {fileID: 2058325480}
+  m_Layer: 0
+  m_Name: OpenSkyApiClient
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &2058325480
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2058325479}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 584d61f93bd22a445b2e33f5373683c4, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  gpsProvider: {fileID: 294844435}
+  hudController: {fileID: 392099730}
+  openSkyBaseUrl: https://opensky-network.org/api/states/all
+  searchRadiusKm: 100
+  refreshSeconds: 5
+  requestTimeoutSeconds: 10
+  logUrlToConsole: 1
+  logRawJsonPreview: 1
+--- !u!4 &2058325481
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2058325479}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -0.29505455, y: 1.1553645, z: 9.570268}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1001 &3001774293689589082
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -1410,3 +1462,4 @@ SceneRoots:
   - {fileID: 74395272}
   - {fileID: 294844436}
   - {fileID: 671746211}
+  - {fileID: 2058325481}
