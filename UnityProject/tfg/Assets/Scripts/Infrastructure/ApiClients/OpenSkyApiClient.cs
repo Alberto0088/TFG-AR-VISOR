@@ -124,14 +124,10 @@ namespace TFG.ARVisor.Infrastructure.ApiClients
             {
                 Debug.LogWarning($"OpenSky request failed: {request.responseCode} - {request.error}");
 
-                UpdateHudWithRisk(new RiskAssessment(
-                    RiskLevel.Low,
-                    "NO ALERTS",
-                    null,
-                    null,
-                    null,
-                    0
-                ));
+                if (request.responseCode == 429)
+                {
+                    Debug.LogWarning("OpenSky rate limit reached. Keeping last valid HUD data.");
+                }
 
                 yield break;
             }
@@ -246,6 +242,10 @@ namespace TFG.ARVisor.Infrastructure.ApiClients
         /// <summary>
         /// Actualiza el HUD con el resumen de tráfico real y el nivel de riesgo calculado.
         /// </summary>
+       /// <summary>
+        /// Actualiza el HUD con el resumen de tráfico real, el nivel de riesgo calculado
+        /// y la aeronave más relevante detectada por el sistema.
+        /// </summary>
         private void UpdateHudWithRisk(RiskAssessment riskAssessment)
         {
             if (hudController == null || riskAssessment == null)
@@ -253,15 +253,26 @@ namespace TFG.ARVisor.Infrastructure.ApiClients
                 return;
             }
 
+            AircraftGeoState relevantAircraft = riskAssessment.MostRelevantAircraft;
+
             string nearestDistanceText = riskAssessment.NearestDistanceKm.HasValue
                 ? $"{riskAssessment.NearestDistanceKm.Value:0.0} KM"
                 : "--";
+
+            string callsign = GetAircraftCallsign(relevantAircraft);
+            string country = relevantAircraft != null ? relevantAircraft.OriginCountry : "";
+            string altitude = FormatAltitude(relevantAircraft);
+            string heading = FormatHeading(relevantAircraft);
 
             TrafficSnapshot snapshot = new TrafficSnapshot(
                 nearbyAircraft: riskAssessment.AircraftCount,
                 nearestDistance: nearestDistanceText,
                 riskLevel: riskAssessment.RiskLevel,
-                alertMessage: riskAssessment.AlertMessage
+                alertMessage: riskAssessment.AlertMessage,
+                relevantCallsign: callsign,
+                relevantCountry: country,
+                relevantAltitude: altitude,
+                relevantHeading: heading
             );
 
             hudController.RenderTraffic(snapshot);
@@ -269,10 +280,55 @@ namespace TFG.ARVisor.Infrastructure.ApiClients
             Debug.Log(
                 $"Risk assessment -> " +
                 $"Aircraft: {riskAssessment.AircraftCount}, " +
+                $"Relevant: {callsign}, " +
                 $"Nearest: {nearestDistanceText}, " +
                 $"Risk: {riskAssessment.RiskLevel}, " +
                 $"Alert: {riskAssessment.AlertMessage}"
             );
+        }
+
+        /// <summary>
+        /// Devuelve el callsign de la aeronave relevante o su identificador si no hay callsign disponible.
+        /// </summary>
+        private string GetAircraftCallsign(AircraftGeoState aircraft)
+        {
+            if (aircraft == null)
+            {
+                return "";
+            }
+
+            if (!string.IsNullOrWhiteSpace(aircraft.Callsign))
+            {
+                return aircraft.Callsign;
+            }
+
+            return aircraft.Id;
+        }
+
+        /// <summary>
+        /// Formatea la altitud de la aeronave para mostrarla en el HUD.
+        /// </summary>
+        private string FormatAltitude(AircraftGeoState aircraft)
+        {
+            if (aircraft == null || !aircraft.AltitudeMeters.HasValue)
+            {
+                return "--";
+            }
+
+            return $"{aircraft.AltitudeMeters.Value:0} M";
+        }
+
+        /// <summary>
+        /// Formatea el rumbo de la aeronave para mostrarlo en el HUD.
+        /// </summary>
+        private string FormatHeading(AircraftGeoState aircraft)
+        {
+            if (aircraft == null || !aircraft.HeadingDegrees.HasValue)
+            {
+                return "--";
+            }
+
+            return $"{aircraft.HeadingDegrees.Value:0}°";
         }
     }
 }

@@ -1,3 +1,24 @@
+/*
+ * HudController.cs
+ * ------------------------------------------------------------
+ * Este script controla los textos principales del HUD del visor.
+ *
+ * Su función es recibir datos ya procesados por otros módulos y mostrarlos
+ * en pantalla de forma clara:
+ * - estado del sistema,
+ * - estado del GPS,
+ * - tráfico aéreo cercano,
+ * - aeronave más relevante,
+ * - nivel de riesgo,
+ * - mensaje de alerta,
+ * - retícula central.
+ *
+ * Se conecta con:
+ * - ExternalGpsProvider: actualiza el panel de sistema con GPS REAL / WAIT.
+ * - OpenSkyApiClient: actualiza el panel de tráfico con datos de OpenSky.
+ * - TrafficSnapshot: modelo que contiene la información que se debe mostrar.
+ */
+
 using TFG.ARVisor.Domain.Models;
 using TMPro;
 using UnityEngine;
@@ -12,6 +33,9 @@ namespace TFG.ARVisor.Presentation.HUD
         [SerializeField] private TMP_Text alertText;
         [SerializeField] private TMP_Text reticleText;
 
+        /// <summary>
+        /// Inicializa el HUD con valores por defecto para que no aparezcan textos vacíos al arrancar la escena.
+        /// </summary>
         private void Start()
         {
             RenderSystemStatus("ONLINE", "SIM", "3D", "1 Hz");
@@ -23,6 +47,9 @@ namespace TFG.ARVisor.Presentation.HUD
             }
         }
 
+        /// <summary>
+        /// Actualiza el panel izquierdo del HUD con el estado general del sistema y del GPS.
+        /// </summary>
         public void RenderSystemStatus(string status, string gpsStatus, string mode, string updateRate)
         {
             if (systemText == null)
@@ -37,19 +64,53 @@ namespace TFG.ARVisor.Presentation.HUD
                 $"UPD  {updateRate}";
         }
 
+        /// <summary>
+        /// Actualiza el panel derecho del HUD con el resumen de tráfico y la aeronave más relevante.
+        /// </summary>
         public void RenderTraffic(TrafficSnapshot snapshot)
         {
             if (trafficText != null)
             {
-                trafficText.text =
-                    $"TRAF {snapshot.NearbyAircraft}\n" +
-                    $"NEAR {snapshot.NearestDistance}\n" +
-                    $"RISK {FormatRisk(snapshot.RiskLevel)}";
+                trafficText.text = BuildTrafficText(snapshot);
             }
 
             RenderAlert(snapshot.AlertMessage, snapshot.RiskLevel);
         }
 
+        /// <summary>
+        /// Construye el texto del panel derecho dependiendo de si existe o no una aeronave relevante.
+        /// </summary>
+        private string BuildTrafficText(TrafficSnapshot snapshot)
+        {
+            if (HasRelevantAircraft(snapshot))
+            {
+                return
+                    $"{snapshot.RelevantCallsign}\n" +
+                    $"DIST {snapshot.NearestDistance}\n" +
+                    $"ALT  {snapshot.RelevantAltitude}\n" +
+                    $"HDG  {snapshot.RelevantHeading}\n" +
+                    $"TRAF {snapshot.NearbyAircraft}\n" +
+                    $"RISK {FormatRisk(snapshot.RiskLevel)}";
+            }
+
+            return
+                $"TRAF {snapshot.NearbyAircraft}\n" +
+                $"NEAR {snapshot.NearestDistance}\n" +
+                $"RISK {FormatRisk(snapshot.RiskLevel)}";
+        }
+
+        /// <summary>
+        /// Comprueba si el snapshot contiene datos suficientes para mostrar una aeronave destacada.
+        /// </summary>
+        private bool HasRelevantAircraft(TrafficSnapshot snapshot)
+        {
+            return snapshot != null &&
+                   !string.IsNullOrWhiteSpace(snapshot.RelevantCallsign);
+        }
+
+        /// <summary>
+        /// Actualiza el mensaje superior de alerta y cambia su color según el nivel de riesgo.
+        /// </summary>
         private void RenderAlert(string message, RiskLevel riskLevel)
         {
             if (alertText == null)
@@ -75,6 +136,9 @@ namespace TFG.ARVisor.Presentation.HUD
             }
         }
 
+        /// <summary>
+        /// Convierte el nivel de riesgo interno en texto corto para el HUD.
+        /// </summary>
         private string FormatRisk(RiskLevel riskLevel)
         {
             switch (riskLevel)
