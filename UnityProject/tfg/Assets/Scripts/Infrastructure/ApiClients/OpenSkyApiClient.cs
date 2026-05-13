@@ -120,10 +120,19 @@ namespace TFG.ARVisor.Infrastructure.ApiClients
 
             yield return request.SendWebRequest();
 
-            if (request.result != UnityWebRequest.Result.Success)
+           if (request.result != UnityWebRequest.Result.Success)
             {
                 Debug.LogWarning($"OpenSky request failed: {request.responseCode} - {request.error}");
-                UpdateHudWithTraffic(0, "--");
+
+                UpdateHudWithRisk(new RiskAssessment(
+                    RiskLevel.Low,
+                    "NO ALERTS",
+                    null,
+                    null,
+                    null,
+                    0
+                ));
+
                 yield break;
             }
 
@@ -133,15 +142,22 @@ namespace TFG.ARVisor.Infrastructure.ApiClients
         }
 
         /// <summary>
-        /// Procesa el JSON recibido desde OpenSky, convierte las aeronaves a modelos internos
-        /// y actualiza el HUD con el número de aeronaves reales y la distancia de la más cercana.
+        /// Procesa el JSON recibido desde OpenSky, convierte las aeronaves a modelos internos,
+        /// filtra las aeronaves por distancia real y calcula el riesgo inicial para actualizar el HUD.
         /// </summary>
         private void ProcessOpenSkyResponse(string json, OwnshipGeoState ownshipState)
         {
             if (string.IsNullOrWhiteSpace(json))
             {
                 Debug.LogWarning("OpenSky response is empty.");
-                UpdateHudWithTraffic(0, "--");
+                UpdateHudWithRisk(new RiskAssessment(
+                    RiskLevel.Low,
+                    "NO ALERTS",
+                    null,
+                    null,
+                    null,
+                    0
+                ));
                 return;
             }
 
@@ -158,13 +174,12 @@ namespace TFG.ARVisor.Infrastructure.ApiClients
                 $"Inside {searchRadiusKm:0} KM: {nearbyAircraft.Count}"
             );
 
-            double? nearestDistanceKm = GetNearestAircraftDistanceKm(ownshipState, nearbyAircraft);
+            RiskAssessment riskAssessment = RiskEngine.Evaluate(
+                ownshipState,
+                nearbyAircraft
+            );
 
-            string nearestDistanceText = nearestDistanceKm.HasValue
-                ? $"{nearestDistanceKm.Value:0.0} KM"
-                : "--";
-
-            UpdateHudWithTraffic(nearbyAircraft.Count, nearestDistanceText);
+            UpdateHudWithRisk(riskAssessment);
 
             LogAircraftList(ownshipState, nearbyAircraft);
 
@@ -229,23 +244,35 @@ namespace TFG.ARVisor.Infrastructure.ApiClients
         }
 
         /// <summary>
-        /// Actualiza el HUD con el resumen básico de tráfico real recibido desde OpenSky.
+        /// Actualiza el HUD con el resumen de tráfico real y el nivel de riesgo calculado.
         /// </summary>
-        private void UpdateHudWithTraffic(int aircraftCount, string nearestDistanceText)
+        private void UpdateHudWithRisk(RiskAssessment riskAssessment)
         {
-            if (hudController == null)
+            if (hudController == null || riskAssessment == null)
             {
                 return;
             }
 
+            string nearestDistanceText = riskAssessment.NearestDistanceKm.HasValue
+                ? $"{riskAssessment.NearestDistanceKm.Value:0.0} KM"
+                : "--";
+
             TrafficSnapshot snapshot = new TrafficSnapshot(
-                nearbyAircraft: aircraftCount,
+                nearbyAircraft: riskAssessment.AircraftCount,
                 nearestDistance: nearestDistanceText,
-                riskLevel: RiskLevel.Low,
-                alertMessage: aircraftCount > 0 ? "TRAFFIC DETECTED" : "NO ALERTS"
+                riskLevel: riskAssessment.RiskLevel,
+                alertMessage: riskAssessment.AlertMessage
             );
 
             hudController.RenderTraffic(snapshot);
+
+            Debug.Log(
+                $"Risk assessment -> " +
+                $"Aircraft: {riskAssessment.AircraftCount}, " +
+                $"Nearest: {nearestDistanceText}, " +
+                $"Risk: {riskAssessment.RiskLevel}, " +
+                $"Alert: {riskAssessment.AlertMessage}"
+            );
         }
     }
 }
