@@ -80,23 +80,41 @@ namespace TFG.ARVisor.Presentation.HUD
         /// <summary>
         /// Construye el texto del panel derecho dependiendo de si existe o no una aeronave relevante.
         /// </summary>
+        /// <summary>
+        /// Construye el texto del panel derecho del HUD.
+        /// Si existe una aeronave relevante, muestra sus datos de forma prioritaria.
+        /// Si no existe, muestra un estado limpio de ausencia de tráfico relevante.
+        /// </summary>
         private string BuildTrafficText(TrafficSnapshot snapshot)
         {
+            if (snapshot == null)
+            {
+                return
+                    "TRAFFIC\n" +
+                    "NO DATA\n\n" +
+                    "TRAF  --\n" +
+                    "NEAR  --\n" +
+                    "RISK  --";
+            }
+
             if (HasRelevantAircraft(snapshot))
             {
                 return
-                    $"{snapshot.RelevantCallsign}\n" +
-                    $"DIST {snapshot.NearestDistance}\n" +
-                    $"ALT  {snapshot.RelevantAltitude}\n" +
-                    $"HDG  {snapshot.RelevantHeading}\n" +
-                    $"TRAF {snapshot.NearbyAircraft}\n" +
-                    $"RISK {FormatRisk(snapshot.RiskLevel)}";
+                    "TARGET\n" +
+                    $"{snapshot.RelevantCallsign}\n\n" +
+                    $"DIST  {snapshot.NearestDistance}\n" +
+                    $"ALT   {snapshot.RelevantAltitude}\n" +
+                    $"HDG   {snapshot.RelevantHeading}\n\n" +
+                    $"TRAF  {snapshot.NearbyAircraft}\n" +
+                    $"RISK  {FormatRisk(snapshot.RiskLevel)}";
             }
 
             return
-                $"TRAF {snapshot.NearbyAircraft}\n" +
-                $"NEAR {snapshot.NearestDistance}\n" +
-                $"RISK {FormatRisk(snapshot.RiskLevel)}";
+                "TRAFFIC\n" +
+                "NO TARGET\n\n" +
+                $"TRAF  {snapshot.NearbyAircraft}\n" +
+                $"NEAR  {snapshot.NearestDistance}\n" +
+                $"RISK  {FormatRisk(snapshot.RiskLevel)}";
         }
 
         /// <summary>
