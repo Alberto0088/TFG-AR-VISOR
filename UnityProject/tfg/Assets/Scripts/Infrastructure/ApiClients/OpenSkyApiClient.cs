@@ -288,47 +288,56 @@ namespace TFG.ARVisor.Infrastructure.ApiClients
         }
 
         /// <summary>
-        /// Devuelve el callsign de la aeronave relevante o su identificador si no hay callsign disponible.
-        /// </summary>
-        private string GetAircraftCallsign(AircraftGeoState aircraft)
-        {
-            if (aircraft == null)
-            {
-                return "";
-            }
-
-            if (!string.IsNullOrWhiteSpace(aircraft.Callsign))
-            {
-                return aircraft.Callsign;
-            }
-
-            return aircraft.Id;
-        }
-
-        /// <summary>
-        /// Formatea la altitud de la aeronave para mostrarla en el HUD.
-        /// </summary>
-        private string FormatAltitude(AircraftGeoState aircraft)
-        {
-            if (aircraft == null || !aircraft.AltitudeMeters.HasValue)
-            {
-                return "--";
-            }
-
-            return $"{aircraft.AltitudeMeters.Value:0} M";
-        }
-
-        /// <summary>
-        /// Formatea el rumbo de la aeronave para mostrarlo en el HUD.
-        /// </summary>
-        private string FormatHeading(AircraftGeoState aircraft)
-        {
-            if (aircraft == null || !aircraft.HeadingDegrees.HasValue)
-            {
-                return "--";
-            }
-
-            return $"{aircraft.HeadingDegrees.Value:0}°";
-        }
+/// Devuelve el callsign de la aeronave relevante.
+/// Si no existe callsign, usa el identificador de la aeronave.
+/// Si tampoco existe identificador, muestra UNKNOWN.
+/// </summary>
+private string GetAircraftCallsign(AircraftGeoState aircraft)
+{
+    if (aircraft == null)
+    {
+        return "";
     }
+
+    if (!string.IsNullOrWhiteSpace(aircraft.Callsign))
+    {
+        return aircraft.Callsign.Trim();
+    }
+
+    if (!string.IsNullOrWhiteSpace(aircraft.Id))
+    {
+        return aircraft.Id.Trim().ToUpper();
+    }
+
+    return "UNKNOWN";
+}
+
+ /// <summary>
+/// Formatea la altitud de la aeronave para mostrarla en el HUD.
+/// Si la altitud no está disponible, muestra "--".
+/// </summary>
+private string FormatAltitude(AircraftGeoState aircraft)
+{
+    if (aircraft == null || !aircraft.AltitudeMeters.HasValue)
+    {
+        return "--";
+    }
+
+    return $"{aircraft.AltitudeMeters.Value:0} M";
+}
+
+       /// <summary>
+/// Formatea el rumbo de la aeronave para mostrarlo en el HUD.
+/// Si el rumbo no está disponible, muestra "--".
+/// </summary>
+private string FormatHeading(AircraftGeoState aircraft)
+{
+    if (aircraft == null || !aircraft.HeadingDegrees.HasValue)
+    {
+        return "--";
+    }
+
+    return $"{aircraft.HeadingDegrees.Value:0}°";
+}
+}
 }
