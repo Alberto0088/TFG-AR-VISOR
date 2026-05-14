@@ -1223,7 +1223,7 @@ MonoBehaviour:
   hudController: {fileID: 392099730}
   openSkyBaseUrl: https://opensky-network.org/api/states/all
   searchRadiusKm: 100
-  refreshSeconds: 5
+  refreshSeconds: 120
   requestTimeoutSeconds: 10
   logUrlToConsole: 1
   logRawJsonPreview: 1
