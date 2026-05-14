@@ -65,25 +65,26 @@ namespace TFG.ARVisor.Presentation.HUD
         }
 
         /// <summary>
-        /// Actualiza el panel derecho del HUD con el resumen de tráfico y la aeronave más relevante.
+        /// Actualiza el panel derecho del HUD con el resumen de tráfico, la aeronave relevante
+        /// y una diferenciación visual según el nivel de riesgo calculado.
         /// </summary>
         public void RenderTraffic(TrafficSnapshot snapshot)
         {
             if (trafficText != null)
             {
                 trafficText.text = BuildTrafficText(snapshot);
+                trafficText.color = GetRiskColor(snapshot != null ? snapshot.RiskLevel : RiskLevel.Low);
             }
 
-            RenderAlert(snapshot.AlertMessage, snapshot.RiskLevel);
+            if (snapshot != null)
+            {
+                RenderAlert(snapshot.AlertMessage, snapshot.RiskLevel);
+            }
         }
 
         /// <summary>
-        /// Construye el texto del panel derecho dependiendo de si existe o no una aeronave relevante.
-        /// </summary>
-        /// <summary>
         /// Construye el texto del panel derecho del HUD.
-        /// Si existe una aeronave relevante, muestra sus datos de forma prioritaria.
-        /// Si no existe, muestra un estado limpio de ausencia de tráfico relevante.
+        /// Destaca la aeronave relevante y adapta el texto al nivel de riesgo.
         /// </summary>
         private string BuildTrafficText(TrafficSnapshot snapshot)
         {
@@ -97,6 +98,8 @@ namespace TFG.ARVisor.Presentation.HUD
                     "RISK  --";
             }
 
+            string riskLabel = GetRiskLabel(snapshot.RiskLevel);
+
             if (HasRelevantAircraft(snapshot))
             {
                 return
@@ -106,7 +109,7 @@ namespace TFG.ARVisor.Presentation.HUD
                     $"ALT   {snapshot.RelevantAltitude}\n" +
                     $"HDG   {snapshot.RelevantHeading}\n\n" +
                     $"TRAF  {snapshot.NearbyAircraft}\n" +
-                    $"RISK  {FormatRisk(snapshot.RiskLevel)}";
+                    $"RISK  {riskLabel}";
             }
 
             return
@@ -114,7 +117,7 @@ namespace TFG.ARVisor.Presentation.HUD
                 "NO TARGET\n\n" +
                 $"TRAF  {snapshot.NearbyAircraft}\n" +
                 $"NEAR  {snapshot.NearestDistance}\n" +
-                $"RISK  {FormatRisk(snapshot.RiskLevel)}";
+                $"RISK  {riskLabel}";
         }
 
         /// <summary>
@@ -127,7 +130,7 @@ namespace TFG.ARVisor.Presentation.HUD
         }
 
         /// <summary>
-        /// Actualiza el mensaje superior de alerta y cambia su color según el nivel de riesgo.
+        /// Actualiza el mensaje superior de alerta y lo hace más visible según el nivel de riesgo.
         /// </summary>
         private void RenderAlert(string message, RiskLevel riskLevel)
         {
@@ -136,21 +139,57 @@ namespace TFG.ARVisor.Presentation.HUD
                 return;
             }
 
-            alertText.text = message;
-
             switch (riskLevel)
             {
-                case RiskLevel.Low:
-                    alertText.color = new Color(0.85f, 0.85f, 0.85f);
+                case RiskLevel.High:
+                    alertText.text = $"!!! {message} !!!";
                     break;
 
                 case RiskLevel.Medium:
-                    alertText.color = new Color(1f, 0.8f, 0.2f);
+                    alertText.text = $"-- {message} --";
                     break;
 
-                case RiskLevel.High:
-                    alertText.color = new Color(1f, 0.2f, 0.2f);
+                default:
+                    alertText.text = message;
                     break;
+            }
+
+            alertText.color = GetRiskColor(riskLevel);
+        }
+
+        /// <summary>
+        /// Devuelve el color visual asociado a cada nivel de riesgo.
+        /// </summary>
+        private Color GetRiskColor(RiskLevel riskLevel)
+        {
+            switch (riskLevel)
+            {
+                case RiskLevel.High:
+                    return new Color(1f, 0.2f, 0.2f);
+
+                case RiskLevel.Medium:
+                    return new Color(1f, 0.8f, 0.2f);
+
+                default:
+                    return new Color(0.9f, 0.9f, 0.9f);
+            }
+        }
+
+        /// <summary>
+        /// Devuelve el texto corto que representa el nivel de riesgo en el HUD.
+        /// </summary>
+        private string GetRiskLabel(RiskLevel riskLevel)
+        {
+            switch (riskLevel)
+            {
+                case RiskLevel.High:
+                    return "HIGH";
+
+                case RiskLevel.Medium:
+                    return "MED";
+
+                default:
+                    return "LOW";
             }
         }
 
