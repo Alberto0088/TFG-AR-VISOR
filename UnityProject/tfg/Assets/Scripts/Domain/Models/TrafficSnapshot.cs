@@ -4,17 +4,11 @@
  * Este modelo representa la información resumida que se muestra en el HUD
  * sobre el tráfico aéreo cercano.
  *
- * Guarda tanto el resumen general:
- * - número de aeronaves cercanas,
- * - distancia de la aeronave más próxima,
- * - nivel de riesgo,
- * - mensaje de alerta,
+ * Guarda el resumen general del tráfico, el riesgo calculado y los datos
+ * de la aeronave seleccionada como TARGET.
  *
- * como información opcional de la aeronave más relevante:
- * - callsign,
- * - país,
- * - altitud,
- * - rumbo.
+ * También incluye información visual sobre la zona hacia la que mira el piloto
+ * y el sector en el que se encuentra la aeronave seleccionada.
  *
  * Se conecta con:
  * - OpenSkyApiClient: crea este snapshot con datos reales de OpenSky.
@@ -35,9 +29,12 @@ namespace TFG.ARVisor.Domain.Models
         public string RelevantAltitude { get; }
         public string RelevantHeading { get; }
 
+        public string ViewSector { get; }
+        public string TargetSector { get; }
+        public string SelectionMode { get; }
+
         /// <summary>
         /// Crea el resumen de tráfico que será mostrado en el HUD.
-        /// Los datos de aeronave relevante son opcionales para mantener compatibilidad con pruebas antiguas.
         /// </summary>
         public TrafficSnapshot(
             int nearbyAircraft,
@@ -47,7 +44,10 @@ namespace TFG.ARVisor.Domain.Models
             string relevantCallsign = "",
             string relevantCountry = "",
             string relevantAltitude = "",
-            string relevantHeading = "")
+            string relevantHeading = "",
+            string viewSector = "",
+            string targetSector = "",
+            string selectionMode = "")
         {
             NearbyAircraft = nearbyAircraft;
             NearestDistance = nearestDistance;
@@ -57,6 +57,9 @@ namespace TFG.ARVisor.Domain.Models
             RelevantCountry = relevantCountry;
             RelevantAltitude = relevantAltitude;
             RelevantHeading = relevantHeading;
+            ViewSector = viewSector;
+            TargetSector = targetSector;
+            SelectionMode = selectionMode;
         }
     }
 }
