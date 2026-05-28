@@ -11,8 +11,10 @@
  * 4. Calcula distancia recorrida, tiempo transcurrido, velocidad y rumbo.
  * 5. Si el movimiento no es suficiente, marca la estimación como no fiable.
  *
- * Esta estimación se usará en la v0.5-alpha para predecir conflictos de
- * trayectoria con aeronaves cercanas recibidas desde OpenSky.
+ * Además, incluye un modo de simulación para desarrollo:
+ * - toma la posición GPS actual como punto de referencia,
+ * - simula un rumbo y velocidad propios,
+ * - permite probar CPA/TCPA sin tener que moverse físicamente.
  *
  * Se conecta con:
  * - ExternalGpsProvider: fuente de posición propia.
@@ -44,12 +46,23 @@ namespace TFG.ARVisor.Infrastructure.Gps
         [SerializeField] private double minimumDistanceMeters = 20.0;
         [SerializeField] private double minimumSpeedMps = 1.0;
 
+        [Header("Debug Motion Simulation")]
+        [SerializeField] private bool useDebugMotion = false;
+        [SerializeField] private double debugTrackDegrees = 90.0;
+        [SerializeField] private double debugSpeedMps = 45.0;
+
         [Header("Debug")]
         [SerializeField] private bool logMotionToConsole = false;
 
         private readonly List<OwnshipMotionSample> samples = new List<OwnshipMotionSample>();
+
         private float nextSampleTime;
         private OwnshipMotionState currentMotionState;
+
+        private bool hasDebugOrigin;
+        private double debugOriginLatitude;
+        private double debugOriginLongitude;
+        private DateTime debugStartTimeUtc;
 
         public OwnshipMotionState CurrentMotionState => currentMotionState;
 
@@ -77,6 +90,13 @@ namespace TFG.ARVisor.Infrastructure.Gps
             nextSampleTime = Time.time + sampleIntervalSeconds;
 
             CaptureGpsSample();
+
+            if (useDebugMotion)
+            {
+                EstimateDebugMotion();
+                return;
+            }
+
             RemoveOldSamples();
             EstimateMotion();
         }
@@ -106,6 +126,55 @@ namespace TFG.ARVisor.Infrastructure.Gps
             );
 
             samples.Add(sample);
+
+            if (!hasDebugOrigin)
+            {
+                hasDebugOrigin = true;
+                debugOriginLatitude = currentState.Latitude;
+                debugOriginLongitude = currentState.Longitude;
+                debugStartTimeUtc = DateTime.UtcNow;
+            }
+        }
+
+        /// <summary>
+        /// Genera un movimiento propio simulado para probar la predicción de conflicto sin desplazamiento real.
+        /// </summary>
+        /// <summary>
+        /// Genera un movimiento propio simulado para probar la predicción de conflicto sin desplazamiento real.
+        /// Si hay GPS disponible, usa su altitud. Si no lo hay, simula igualmente rumbo y velocidad.
+        ///</summary>
+        private void EstimateDebugMotion()
+        {
+            double? altitudeMeters = null;
+
+            if (gpsProvider != null && gpsProvider.CurrentState != null)
+            {
+                altitudeMeters = gpsProvider.CurrentState.AltitudeMeters;
+            }
+
+            currentMotionState = new OwnshipMotionState(
+                true,
+                GeoBearingCalculator.Normalize360(debugTrackDegrees),
+                debugSpeedMps,
+                altitudeMeters,
+                "Debug simulated ownship motion."
+            );
+
+            if (logMotionToConsole)
+            {
+                double elapsedSeconds = hasDebugOrigin
+                    ? (DateTime.UtcNow - debugStartTimeUtc).TotalSeconds
+                    : 0.0;
+
+                double simulatedDistanceMeters = debugSpeedMps * elapsedSeconds;
+
+                Debug.Log(
+                    $"Ownship motion DEBUG -> " +
+                    $"Track: {debugTrackDegrees:0.0}°, " +
+                    $"Speed: {debugSpeedMps:0.0} m/s, " +
+                    $"SimDistance: {simulatedDistanceMeters:0.0} m"
+                );
+            }
         }
 
         /// <summary>
