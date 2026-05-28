@@ -48,8 +48,10 @@ namespace TFG.ARVisor.Infrastructure.ApiClients
     {
         [Header("References")]
         [SerializeField] private ExternalGpsProvider gpsProvider;
+        [SerializeField] private bool logAircraftListToConsole = false;
         [SerializeField] private HudController hudController;
         [SerializeField] private HeadsetOrientationProvider headsetOrientationProvider;
+        [SerializeField] private OwnshipMotionEstimator motionEstimator;
 
         [Header("OpenSky Settings")]
         [SerializeField] private string openSkyBaseUrl = "https://opensky-network.org/api/states/all";
@@ -70,14 +72,21 @@ namespace TFG.ARVisor.Infrastructure.ApiClients
         [Header("Debug Settings")]
         [SerializeField] private bool logUrlToConsole = true;
         [SerializeField] private bool logRawJsonPreview = false;
+        [SerializeField] private bool logConflictPredictionToConsole = true;
+        [SerializeField] private float conflictLogIntervalSeconds = 3f;
+
+
 
         private Coroutine pollingCoroutine;
 
         private OwnshipGeoState lastOwnshipState;
         private List<AircraftGeoState> lastNearbyAircraft;
         private RiskAssessment lastRiskAssessment;
+        private ConflictAssessment lastConflictAssessment;
         private float nextHudTargetRefreshTime;
+        
 
+        private float nextConflictLogTime;
         /// <summary>
         /// Inicia el ciclo de consultas a OpenSky cuando arranca la escena.
         /// </summary>
@@ -219,7 +228,12 @@ namespace TFG.ARVisor.Infrastructure.ApiClients
                 $"Inside {searchRadiusKm:0} KM: {nearbyAircraft.Count}"
             );
 
-            RiskAssessment riskAssessment = RiskEngine.Evaluate(
+           RiskAssessment riskAssessment = RiskEngine.Evaluate(
+                ownshipState,
+                nearbyAircraft
+            );
+
+            ConflictAssessment conflictAssessment = EvaluateConflictPrediction(
                 ownshipState,
                 nearbyAircraft
             );
@@ -227,6 +241,7 @@ namespace TFG.ARVisor.Infrastructure.ApiClients
             lastOwnshipState = ownshipState;
             lastNearbyAircraft = nearbyAircraft;
             lastRiskAssessment = riskAssessment;
+            lastConflictAssessment = conflictAssessment;
 
             RefreshHudTargetFromCachedTraffic();
 
@@ -240,8 +255,8 @@ namespace TFG.ARVisor.Infrastructure.ApiClients
         }
 
         /// <summary>
-        /// Actualiza el HUD usando los últimos datos válidos de tráfico y la orientación actual del visor.
-        /// No llama a OpenSky, solo recalcula el TARGET con datos ya recibidos.
+        /// Actualiza el HUD usando los últimos datos válidos de tráfico, la orientación actual del visor
+        /// y la predicción actualizada de conflicto, sin realizar nuevas peticiones a OpenSky.
         /// </summary>
         private void RefreshHudTargetFromCachedTraffic()
         {
@@ -255,11 +270,16 @@ namespace TFG.ARVisor.Infrastructure.ApiClients
                 lastNearbyAircraft
             );
 
-            UpdateHudWithRisk(lastRiskAssessment, targetSelection);
+            lastConflictAssessment = EvaluateConflictPrediction(
+                lastOwnshipState,
+                lastNearbyAircraft
+            );
+
+            UpdateHudWithRisk(lastRiskAssessment, targetSelection, lastConflictAssessment);
 
             if (logHudTargetRefresh)
             {
-                Debug.Log("HUD target refreshed from cached traffic.");
+                Debug.Log("HUD target and conflict prediction refreshed from cached traffic.");
             }
         }
 
@@ -290,20 +310,28 @@ namespace TFG.ARVisor.Infrastructure.ApiClients
         }
 
         /// <summary>
-        /// Actualiza el HUD con el riesgo global y la aeronave seleccionada según la dirección de mirada.
+        /// Actualiza el HUD combinando riesgo básico, selección visual de target
+        /// y predicción inicial de conflicto de trayectoria.
         /// </summary>
         private void UpdateHudWithRisk(
             RiskAssessment riskAssessment,
-            AircraftTargetSelectionResult targetSelection)
+            AircraftTargetSelectionResult targetSelection,
+            ConflictAssessment conflictAssessment)
         {
             if (hudController == null || riskAssessment == null)
             {
                 return;
             }
 
+            bool conflictHasPriority = ShouldPrioritizeConflict(conflictAssessment);
+
             AircraftGeoState relevantAircraft = null;
 
-            if (targetSelection != null && targetSelection.HasTarget)
+            if (conflictHasPriority)
+            {
+                relevantAircraft = conflictAssessment.Aircraft;
+            }
+            else if (targetSelection != null && targetSelection.HasTarget)
             {
                 relevantAircraft = targetSelection.SelectedAircraft;
             }
@@ -312,14 +340,27 @@ namespace TFG.ARVisor.Infrastructure.ApiClients
                 relevantAircraft = riskAssessment.MostRelevantAircraft;
             }
 
-            double? targetDistanceKm =
-                targetSelection != null && targetSelection.SelectedDistanceKm.HasValue
-                    ? targetSelection.SelectedDistanceKm
-                    : riskAssessment.NearestDistanceKm;
+            double? targetDistanceKm = GetDisplayDistanceKm(
+                riskAssessment,
+                targetSelection,
+                conflictAssessment,
+                conflictHasPriority
+            );
 
             string nearestDistanceText = targetDistanceKm.HasValue
                 ? $"{targetDistanceKm.Value:0.0} KM"
                 : "--";
+
+            RiskLevel displayRiskLevel = GetOverallRiskLevel(
+                riskAssessment,
+                conflictAssessment
+            );
+
+            string displayAlertMessage = GetOverallAlertMessage(
+                riskAssessment,
+                conflictAssessment,
+                displayRiskLevel
+            );
 
             string callsign = GetAircraftCallsign(relevantAircraft);
             string country = relevantAircraft != null ? relevantAircraft.OriginCountry : "";
@@ -329,20 +370,27 @@ namespace TFG.ARVisor.Infrastructure.ApiClients
             TrafficSnapshot snapshot = new TrafficSnapshot(
                 nearbyAircraft: riskAssessment.AircraftCount,
                 nearestDistance: nearestDistanceText,
-                riskLevel: riskAssessment.RiskLevel,
-                alertMessage: riskAssessment.AlertMessage,
+                riskLevel: displayRiskLevel,
+                alertMessage: displayAlertMessage,
                 relevantCallsign: callsign,
                 relevantCountry: country,
                 relevantAltitude: altitude,
                 relevantHeading: heading,
-                viewSector: GetViewSectorText(targetSelection),
-                targetSector: GetTargetSectorText(targetSelection),
-                selectionMode: GetSelectionModeText(targetSelection)
+                viewSector: BuildViewSectorText(),
+                targetSector: BuildTargetSectorTextForAircraft(relevantAircraft),
+                selectionMode: conflictHasPriority
+                    ? "CONFLICT"
+                    : GetSelectionModeText(targetSelection),
+                conflictStatus: GetConflictStatusText(conflictAssessment),
+                closestApproachDistance: FormatClosestApproach(conflictAssessment),
+                timeToClosestApproach: FormatTimeToClosestApproach(conflictAssessment),
+                motionStatus: GetMotionStatusText(conflictAssessment)
             );
 
             hudController.RenderTraffic(snapshot);
 
             LogTargetSelection(riskAssessment, targetSelection, callsign, nearestDistanceText);
+            LogConflictAssessment(conflictAssessment);
         }
 
         /// <summary>
@@ -350,7 +398,7 @@ namespace TFG.ARVisor.Infrastructure.ApiClients
         /// </summary>
         private void LogAircraftList(OwnshipGeoState ownshipState, List<AircraftGeoState> aircraft)
         {
-            if (aircraft == null)
+            if (!logAircraftListToConsole)
             {
                 return;
             }
@@ -383,6 +431,11 @@ namespace TFG.ARVisor.Infrastructure.ApiClients
             string callsign,
             string distanceText)
         {
+
+            if (!logHudTargetRefresh)
+            {
+                return;
+            }
             if (riskAssessment == null)
             {
                 return;
@@ -513,29 +566,312 @@ namespace TFG.ARVisor.Infrastructure.ApiClients
             return targetSelection.SelectedByViewDirection ? "VIEW LOCK" : "NEAREST";
         }
 
+
         /// <summary>
-        /// Convierte un ángulo relativo en un sector simple del avión.
-        /// </summary>
-        private string GetSectorName(double relativeAngleDegrees)
-        {
-            double angle = GeoBearingCalculator.NormalizeSigned180(relativeAngleDegrees);
-
-            if (angle >= -45.0 && angle <= 45.0)
-            {
-                return "FRONT";
-            }
-
-            if (angle > 45.0 && angle < 135.0)
-            {
-                return "RIGHT";
-            }
-
-            if (angle < -45.0 && angle > -135.0)
-            {
-                return "LEFT";
-            }
-
-            return "REAR";
-        }
+/// Ejecuta la predicción de conflicto usando el movimiento propio estimado
+/// y las aeronaves cercanas recibidas desde OpenSky.
+/// </summary>
+private ConflictAssessment EvaluateConflictPrediction(
+    OwnshipGeoState ownshipState,
+    List<AircraftGeoState> nearbyAircraft)
+{
+    if (nearbyAircraft == null || nearbyAircraft.Count == 0)
+    {
+        return null;
     }
+
+    OwnshipMotionState motionState = motionEstimator != null
+        ? motionEstimator.CurrentMotionState
+        : null;
+
+    ConflictAssessment assessment = ConflictPredictionEngine.EvaluateMostCritical(
+        ownshipState,
+        motionState,
+        nearbyAircraft
+    );
+
+    return assessment;
+}
+
+/// <summary>
+/// Indica si la predicción de conflicto debe imponerse sobre el target visual por mirada.
+/// </summary>
+private bool ShouldPrioritizeConflict(ConflictAssessment conflictAssessment)
+{
+    return conflictAssessment != null &&
+           conflictAssessment.HasPrediction &&
+           conflictAssessment.RiskLevel != RiskLevel.Low;
+}
+
+/// <summary>
+/// Devuelve la distancia que debe mostrarse en el HUD.
+/// Si hay conflicto prioritario, muestra la distancia actual de la aeronave conflictiva.
+/// </summary>
+private double? GetDisplayDistanceKm(
+    RiskAssessment riskAssessment,
+    AircraftTargetSelectionResult targetSelection,
+    ConflictAssessment conflictAssessment,
+    bool conflictHasPriority)
+{
+    if (conflictHasPriority && conflictAssessment != null)
+    {
+        return conflictAssessment.CurrentDistanceKm;
+    }
+
+    if (targetSelection != null && targetSelection.SelectedDistanceKm.HasValue)
+    {
+        return targetSelection.SelectedDistanceKm.Value;
+    }
+
+    return riskAssessment.NearestDistanceKm;
+}
+
+/// <summary>
+/// Combina el riesgo básico por cercanía y el riesgo calculado por predicción.
+/// </summary>
+private RiskLevel GetOverallRiskLevel(
+    RiskAssessment riskAssessment,
+    ConflictAssessment conflictAssessment)
+{
+    RiskLevel basicRisk = riskAssessment != null
+        ? riskAssessment.RiskLevel
+        : RiskLevel.Low;
+
+    RiskLevel conflictRisk = conflictAssessment != null
+        ? conflictAssessment.RiskLevel
+        : RiskLevel.Low;
+
+    return GetRiskPriority(conflictRisk) > GetRiskPriority(basicRisk)
+        ? conflictRisk
+        : basicRisk;
+}
+
+/// <summary>
+/// Devuelve el mensaje de alerta global que debe aparecer en la parte superior del HUD.
+/// </summary>
+private string GetOverallAlertMessage(
+    RiskAssessment riskAssessment,
+    ConflictAssessment conflictAssessment,
+    RiskLevel overallRisk)
+{
+    if (conflictAssessment != null &&
+        conflictAssessment.HasPrediction &&
+        conflictAssessment.RiskLevel == overallRisk &&
+        overallRisk != RiskLevel.Low)
+    {
+        return conflictAssessment.AlertMessage;
+    }
+
+    return riskAssessment != null
+        ? riskAssessment.AlertMessage
+        : "NO ALERTS";
+}
+
+/// <summary>
+/// Devuelve una prioridad numérica para comparar riesgos.
+/// </summary>
+private int GetRiskPriority(RiskLevel riskLevel)
+{
+    switch (riskLevel)
+    {
+        case RiskLevel.High:
+            return 3;
+
+        case RiskLevel.Medium:
+            return 2;
+
+        default:
+            return 1;
+    }
+}
+
+/// <summary>
+/// Devuelve el texto del sector hacia el que está mirando el piloto.
+/// </summary>
+private string BuildViewSectorText()
+{
+    if (headsetOrientationProvider == null)
+    {
+        return "VIEW --";
+    }
+
+    double headYaw = headsetOrientationProvider.GetHeadRelativeYawDegrees();
+
+    return $"VIEW {GetSectorName(headYaw)}";
+}
+
+/// <summary>
+/// Devuelve el sector relativo donde se encuentra una aeronave respecto al frente del avión.
+/// </summary>
+private string BuildTargetSectorTextForAircraft(AircraftGeoState aircraft)
+{
+    if (aircraft == null || lastOwnshipState == null)
+    {
+        return "SECTOR --";
+    }
+
+    double aircraftHeadingDegrees = headsetOrientationProvider != null
+        ? headsetOrientationProvider.GetAircraftHeadingDegrees()
+        : 0.0;
+
+    double bearingDegrees = GeoBearingCalculator.BearingDegrees(
+        lastOwnshipState,
+        aircraft
+    );
+
+    double relativeBearingDegrees = GeoBearingCalculator.NormalizeSigned180(
+        bearingDegrees - aircraftHeadingDegrees
+    );
+
+    return $"SECTOR {GetSectorName(relativeBearingDegrees)}";
+}
+
+/// <summary>
+/// Convierte un ángulo relativo en un sector simple del avión.
+/// </summary>
+private string GetSectorName(double relativeAngleDegrees)
+{
+    double angle = GeoBearingCalculator.NormalizeSigned180(relativeAngleDegrees);
+
+    if (angle >= -45.0 && angle <= 45.0)
+    {
+        return "FRONT";
+    }
+
+    if (angle > 45.0 && angle < 135.0)
+    {
+        return "RIGHT";
+    }
+
+    if (angle < -45.0 && angle > -135.0)
+    {
+        return "LEFT";
+    }
+
+    return "REAR";
+}
+
+/// <summary>
+/// Devuelve un texto resumido sobre el estado de predicción de conflicto.
+/// </summary>
+private string GetConflictStatusText(ConflictAssessment conflictAssessment)
+{
+    if (conflictAssessment == null)
+    {
+        return "PRED WAIT";
+    }
+
+    if (!conflictAssessment.HasPrediction)
+    {
+        return "PRED WAIT";
+    }
+
+    switch (conflictAssessment.RiskLevel)
+    {
+        case RiskLevel.High:
+            return "CONFLICT RISK";
+
+        case RiskLevel.Medium:
+            return "TRAJECTORY WATCH";
+
+        default:
+            return "PATH CLEAR";
+    }
+}
+
+/// <summary>
+/// Formatea la distancia CPA para mostrarla en el HUD.
+/// </summary>
+private string FormatClosestApproach(ConflictAssessment conflictAssessment)
+{
+    if (conflictAssessment == null ||
+        !conflictAssessment.HasPrediction ||
+        !conflictAssessment.ClosestApproachDistanceKm.HasValue)
+    {
+        return "--";
+    }
+
+    return $"{conflictAssessment.ClosestApproachDistanceKm.Value:0.0} KM";
+}
+
+/// <summary>
+/// Formatea el tiempo TCPA para mostrarlo en el HUD.
+/// </summary>
+private string FormatTimeToClosestApproach(ConflictAssessment conflictAssessment)
+{
+    if (conflictAssessment == null ||
+        !conflictAssessment.HasPrediction ||
+        !conflictAssessment.TimeToClosestApproachSeconds.HasValue)
+    {
+        return "--";
+    }
+
+    int totalSeconds = (int)System.Math.Round(
+        conflictAssessment.TimeToClosestApproachSeconds.Value
+    );
+
+    int minutes = totalSeconds / 60;
+    int seconds = totalSeconds % 60;
+
+    return $"{minutes:00}:{seconds:00}";
+}
+
+/// <summary>
+/// Devuelve el estado de movimiento propio usado por la predicción.
+/// </summary>
+private string GetMotionStatusText(ConflictAssessment conflictAssessment)
+{
+    if (conflictAssessment == null)
+    {
+        return "MOTION --";
+    }
+
+    if (!conflictAssessment.HasPrediction)
+    {
+        return "MOTION WAIT";
+    }
+
+    return "MOTION OK";
+}
+
+/// <summary>
+/// Muestra una única línea resumida de predicción de conflicto cada cierto tiempo.
+/// Sirve para comprobar si el cambio de rumbo simulado afecta al CPA/TCPA.
+/// </summary>
+private void LogConflictAssessment(ConflictAssessment conflictAssessment)
+{
+    if (!logConflictPredictionToConsole || conflictAssessment == null)
+    {
+        return;
+    }
+
+    if (Time.time < nextConflictLogTime)
+    {
+        return;
+    }
+
+    nextConflictLogTime = Time.time + conflictLogIntervalSeconds;
+
+    OwnshipMotionState motionState = motionEstimator != null
+        ? motionEstimator.CurrentMotionState
+        : null;
+
+    string ownshipText = motionState != null && motionState.HasReliableMotion
+        ? $"Ownship: {motionState.TrackDegrees:0.0}° / {motionState.SpeedMps:0.0} m/s"
+        : "Ownship: NO MOTION";
+
+    Debug.Log(
+        $"CONFLICT TEST -> " +
+        $"{ownshipText} | " +
+        $"Aircraft: {GetAircraftCallsign(conflictAssessment.Aircraft)} | " +
+        $"Current: {conflictAssessment.CurrentDistanceKm:0.0} KM | " +
+        $"CPA: {FormatClosestApproach(conflictAssessment)} | " +
+        $"TCPA: {FormatTimeToClosestApproach(conflictAssessment)} | " +
+        $"Risk: {conflictAssessment.RiskLevel} | " +
+        $"Reason: {conflictAssessment.Reason}"
+    );
+}
+    }
+
+    
 }

@@ -254,6 +254,60 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &299444310
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 299444312}
+  - component: {fileID: 299444311}
+  m_Layer: 0
+  m_Name: OwnshipMotionEstimator
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &299444311
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 299444310}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a62cddf7aa13a0048877b73e9fc0dff4, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  gpsProvider: {fileID: 294844435}
+  sampleIntervalSeconds: 1
+  historyWindowSeconds: 120
+  minimumTimeDeltaSeconds: 10
+  minimumDistanceMeters: 20
+  minimumSpeedMps: 1
+  useDebugMotion: 1
+  debugTrackDegrees: 0
+  debugSpeedMps: 45
+  logMotionToConsole: 0
+--- !u!4 &299444312
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 299444310}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -0.25688806, y: 1.9862, z: 9.079619}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &320596661
 GameObject:
   m_ObjectHideFlags: 0
@@ -1270,12 +1324,15 @@ MonoBehaviour:
   gpsProvider: {fileID: 294844435}
   hudController: {fileID: 392099730}
   headsetOrientationProvider: {fileID: 320596662}
+  motionEstimator: {fileID: 299444311}
   openSkyBaseUrl: https://opensky-network.org/api/states/all
   searchRadiusKm: 100
   prioritizeByHeadsetOrientation: 1
-  maxViewAngleDifferenceDegrees: 90
+  maxViewAngleDifferenceDegrees: 45
   refreshSeconds: 20
   requestTimeoutSeconds: 10
+  hudTargetRefreshSeconds: 1
+  logHudTargetRefresh: 0
   logUrlToConsole: 1
   logRawJsonPreview: 1
 --- !u!4 &2058325481
@@ -1559,3 +1616,4 @@ SceneRoots:
   - {fileID: 671746211}
   - {fileID: 2058325481}
   - {fileID: 320596663}
+  - {fileID: 299444312}

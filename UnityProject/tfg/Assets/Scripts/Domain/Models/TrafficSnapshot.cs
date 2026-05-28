@@ -4,11 +4,9 @@
  * Este modelo representa la información resumida que se muestra en el HUD
  * sobre el tráfico aéreo cercano.
  *
- * Guarda el resumen general del tráfico, el riesgo calculado y los datos
- * de la aeronave seleccionada como TARGET.
- *
- * También incluye información visual sobre la zona hacia la que mira el piloto
- * y el sector en el que se encuentra la aeronave seleccionada.
+ * Guarda el resumen general del tráfico, el riesgo calculado, los datos de
+ * la aeronave seleccionada como TARGET y la información inicial de predicción
+ * de conflicto de trayectoria.
  *
  * Se conecta con:
  * - OpenSkyApiClient: crea este snapshot con datos reales de OpenSky.
@@ -33,6 +31,11 @@ namespace TFG.ARVisor.Domain.Models
         public string TargetSector { get; }
         public string SelectionMode { get; }
 
+        public string ConflictStatus { get; }
+        public string ClosestApproachDistance { get; }
+        public string TimeToClosestApproach { get; }
+        public string MotionStatus { get; }
+
         /// <summary>
         /// Crea el resumen de tráfico que será mostrado en el HUD.
         /// </summary>
@@ -47,19 +50,30 @@ namespace TFG.ARVisor.Domain.Models
             string relevantHeading = "",
             string viewSector = "",
             string targetSector = "",
-            string selectionMode = "")
+            string selectionMode = "",
+            string conflictStatus = "",
+            string closestApproachDistance = "",
+            string timeToClosestApproach = "",
+            string motionStatus = "")
         {
             NearbyAircraft = nearbyAircraft;
             NearestDistance = nearestDistance;
             RiskLevel = riskLevel;
             AlertMessage = alertMessage;
+
             RelevantCallsign = relevantCallsign;
             RelevantCountry = relevantCountry;
             RelevantAltitude = relevantAltitude;
             RelevantHeading = relevantHeading;
+
             ViewSector = viewSector;
             TargetSector = targetSector;
             SelectionMode = selectionMode;
+
+            ConflictStatus = conflictStatus;
+            ClosestApproachDistance = closestApproachDistance;
+            TimeToClosestApproach = timeToClosestApproach;
+            MotionStatus = motionStatus;
         }
     }
 }

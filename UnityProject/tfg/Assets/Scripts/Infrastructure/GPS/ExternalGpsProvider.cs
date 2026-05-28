@@ -9,6 +9,7 @@ namespace TFG.ARVisor.Infrastructure.Gps
 {
     public class ExternalGpsProvider : MonoBehaviour
     {
+        
         [Header("References")]
         [SerializeField] private HudController hudController;
 
@@ -18,7 +19,8 @@ namespace TFG.ARVisor.Infrastructure.Gps
         [Header("Settings")]
         [SerializeField] private float refreshSeconds = 1f;
         [SerializeField] private int requestTimeoutSeconds = 2;
-        [SerializeField] private bool logGpsToConsole = true;
+        [Header("Debug")]
+        [SerializeField] private bool logGpsToConsole = false;
 
         public OwnshipGeoState CurrentState { get; private set; }
 
