@@ -75,6 +75,10 @@ namespace TFG.ARVisor.Infrastructure.ApiClients
         [SerializeField] private bool logConflictPredictionToConsole = true;
         [SerializeField] private float conflictLogIntervalSeconds = 3f;
 
+        [Header("Conflict Test Scenarios")]
+        [SerializeField] private bool useConflictTestScenario = false;
+        [SerializeField] private ConflictTestScenarioType conflictTestScenario = ConflictTestScenarioType.SafeParallel;
+        [SerializeField] private bool includeRealTrafficWithTestScenario = false;
 
 
         private Coroutine pollingCoroutine;
@@ -96,8 +100,8 @@ namespace TFG.ARVisor.Infrastructure.ApiClients
         }
 
         /// <summary>
-        /// Recalcula periódicamente qué aeronave debe mostrarse en el HUD usando
-        /// los últimos datos recibidos desde OpenSky, sin realizar nuevas peticiones a la API.
+        /// Recalcula periódicamente el HUD usando datos cacheados o escenarios de prueba.
+        /// En modo escenario de conflicto, no depende de nuevas respuestas de OpenSky.
         /// </summary>
         private void Update()
         {
@@ -107,6 +111,12 @@ namespace TFG.ARVisor.Infrastructure.ApiClients
             }
 
             nextHudTargetRefreshTime = Time.time + hudTargetRefreshSeconds;
+
+            if (useConflictTestScenario && !includeRealTrafficWithTestScenario)
+            {
+                RefreshConflictTestScenarioFromCurrentGps();
+                return;
+            }
 
             RefreshHudTargetFromCachedTraffic();
         }
@@ -124,16 +134,21 @@ namespace TFG.ARVisor.Infrastructure.ApiClients
         }
 
         /// <summary>
-        /// Ejecuta consultas periódicas a OpenSky cada cierto número de segundos.
-        /// </summary>
-        private IEnumerator PollOpenSkyLoop()
+/// Ejecuta consultas periódicas a OpenSky.
+/// Si se está usando un escenario controlado sin tráfico real, no consulta OpenSky.
+/// </summary>
+private IEnumerator PollOpenSkyLoop()
+{
+    while (true)
+    {
+        if (!useConflictTestScenario || includeRealTrafficWithTestScenario)
         {
-            while (true)
-            {
-                yield return FetchCurrentTraffic();
-                yield return new WaitForSeconds(refreshSeconds);
-            }
+            yield return FetchCurrentTraffic();
         }
+
+        yield return new WaitForSeconds(refreshSeconds);
+    }
+}
 
         /// <summary>
         /// Obtiene la posición propia, genera la bounding box y lanza la petición HTTP a OpenSky.
@@ -221,8 +236,13 @@ namespace TFG.ARVisor.Infrastructure.ApiClients
                 ownshipState,
                 aircraft,
                 searchRadiusKm
+                
             );
-
+        nearbyAircraft = ApplyConflictTestScenario(
+                ownshipState,
+                nearbyAircraft
+            );
+        
             Debug.Log(
                 $"OpenSky aircraft parsed: {aircraft.Count}. " +
                 $"Inside {searchRadiusKm:0} KM: {nearbyAircraft.Count}"
@@ -871,7 +891,129 @@ private void LogConflictAssessment(ConflictAssessment conflictAssessment)
         $"Reason: {conflictAssessment.Reason}"
     );
 }
+
+
+
+/// <summary>
+/// Aplica un escenario controlado de conflicto para pruebas.
+/// Si está activado, puede reemplazar el tráfico real o combinarlo con el escenario simulado.
+/// </summary>
+private List<AircraftGeoState> ApplyConflictTestScenario(
+    OwnshipGeoState ownshipState,
+    List<AircraftGeoState> realNearbyAircraft)
+{
+    if (!useConflictTestScenario)
+    {
+        return realNearbyAircraft;
     }
+
+    OwnshipMotionState motionState = GetMotionStateForConflictScenario(ownshipState);
+
+    List<AircraftGeoState> scenarioAircraft =
+        TFG.ARVisor.Domain.Services.ConflictTestScenarioFactory.CreateScenarioAircraft(
+            ownshipState,
+            motionState,
+            conflictTestScenario
+        );
+
+    if (includeRealTrafficWithTestScenario)
+    {
+        List<AircraftGeoState> combinedAircraft = new List<AircraftGeoState>();
+
+        if (realNearbyAircraft != null)
+        {
+            combinedAircraft.AddRange(realNearbyAircraft);
+        }
+
+        combinedAircraft.AddRange(scenarioAircraft);
+
+        return combinedAircraft;
+    }
+
+    return scenarioAircraft;
+}
+
+
+
+
+/// <summary>
+/// Actualiza el HUD usando únicamente un escenario controlado de conflicto.
+/// Este modo no depende de OpenSky y permite probar LOW / MED / HIGH desde el Inspector.
+/// </summary>
+private void RefreshConflictTestScenarioFromCurrentGps()
+{
+    if (gpsProvider == null || gpsProvider.CurrentState == null)
+    {
+        return;
+    }
+
+    OwnshipGeoState ownshipState = gpsProvider.CurrentState;
+
+    OwnshipMotionState motionState = GetMotionStateForConflictScenario(ownshipState);
+
+    List<AircraftGeoState> scenarioAircraft =
+        TFG.ARVisor.Domain.Services.ConflictTestScenarioFactory.CreateScenarioAircraft(
+            ownshipState,
+            motionState,
+            conflictTestScenario
+        );
+
+    RiskAssessment riskAssessment = RiskEngine.Evaluate(
+        ownshipState,
+        scenarioAircraft
+    );
+
+    ConflictAssessment conflictAssessment = ConflictPredictionEngine.EvaluateMostCritical(
+        ownshipState,
+        motionState,
+        scenarioAircraft
+    );
+
+    lastOwnshipState = ownshipState;
+    lastNearbyAircraft = scenarioAircraft;
+    lastRiskAssessment = riskAssessment;
+    lastConflictAssessment = conflictAssessment;
+
+    AircraftTargetSelectionResult targetSelection = SelectHudTarget(
+        ownshipState,
+        scenarioAircraft
+    );
+
+    UpdateHudWithRisk(
+        riskAssessment,
+        targetSelection,
+        conflictAssessment
+    );
+}
+
+
+
+/// <summary>
+/// Devuelve el movimiento propio que se usará para escenarios de prueba.
+/// Si el estimador todavía no tiene movimiento fiable, crea una referencia simulada segura
+/// para que los escenarios puedan probarse desde el primer momento.
+/// </summary>
+private OwnshipMotionState GetMotionStateForConflictScenario(OwnshipGeoState ownshipState)
+{
+    OwnshipMotionState motionState = motionEstimator != null
+        ? motionEstimator.CurrentMotionState
+        : null;
+
+    if (motionState != null && motionState.HasReliableMotion)
+    {
+        return motionState;
+    }
+
+    return new OwnshipMotionState(
+        hasReliableMotion: true,
+        trackDegrees: 90.0,
+        speedMps: 45.0,
+        altitudeMeters: ownshipState != null ? ownshipState.AltitudeMeters : null,
+        reason: "Fallback scenario motion."
+    );
+}
+    }
+
 
     
 }

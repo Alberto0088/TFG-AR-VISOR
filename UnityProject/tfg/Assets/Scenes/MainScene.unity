@@ -238,7 +238,7 @@ MonoBehaviour:
   gpsEndpointUrl: http://127.0.0.1:5000/latest
   refreshSeconds: 1
   requestTimeoutSeconds: 2
-  logGpsToConsole: 1
+  logGpsToConsole: 0
 --- !u!4 &294844436
 Transform:
   m_ObjectHideFlags: 0
@@ -1322,6 +1322,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   gpsProvider: {fileID: 294844435}
+  logAircraftListToConsole: 0
   hudController: {fileID: 392099730}
   headsetOrientationProvider: {fileID: 320596662}
   motionEstimator: {fileID: 299444311}
@@ -1333,8 +1334,10 @@ MonoBehaviour:
   requestTimeoutSeconds: 10
   hudTargetRefreshSeconds: 1
   logHudTargetRefresh: 0
-  logUrlToConsole: 1
-  logRawJsonPreview: 1
+  logUrlToConsole: 0
+  logRawJsonPreview: 0
+  logConflictPredictionToConsole: 1
+  conflictLogIntervalSeconds: 3
 --- !u!4 &2058325481
 Transform:
   m_ObjectHideFlags: 0
