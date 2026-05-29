@@ -388,24 +388,27 @@ private IEnumerator PollOpenSkyLoop()
             string heading = FormatHeading(relevantAircraft);
 
             TrafficSnapshot snapshot = new TrafficSnapshot(
-                nearbyAircraft: riskAssessment.AircraftCount,
-                nearestDistance: nearestDistanceText,
-                riskLevel: displayRiskLevel,
-                alertMessage: displayAlertMessage,
-                relevantCallsign: callsign,
-                relevantCountry: country,
-                relevantAltitude: altitude,
-                relevantHeading: heading,
-                viewSector: BuildViewSectorText(),
-                targetSector: BuildTargetSectorTextForAircraft(relevantAircraft),
-                selectionMode: conflictHasPriority
+            nearbyAircraft: riskAssessment.AircraftCount,
+            nearestDistance: nearestDistanceText,
+            riskLevel: displayRiskLevel,
+            alertMessage: displayAlertMessage,
+            relevantCallsign: callsign,
+            relevantCountry: country,
+            relevantAltitude: altitude,
+            relevantHeading: heading,
+            viewSector: BuildViewSectorText(),
+            targetSector: BuildTargetSectorTextForAircraft(relevantAircraft),
+            selectionMode: useConflictTestScenario
+                ? $"SCENARIO {conflictTestScenario.ToString().ToUpperInvariant()}"
+                : conflictHasPriority
                     ? "CONFLICT"
                     : GetSelectionModeText(targetSelection),
-                conflictStatus: GetConflictStatusText(conflictAssessment),
-                closestApproachDistance: FormatClosestApproach(conflictAssessment),
-                timeToClosestApproach: FormatTimeToClosestApproach(conflictAssessment),
-                motionStatus: GetMotionStatusText(conflictAssessment)
-            );
+            conflictStatus: GetConflictStatusText(conflictAssessment),
+            closestApproachDistance: FormatClosestApproach(conflictAssessment),
+            timeToClosestApproach: FormatTimeToClosestApproach(conflictAssessment),
+            motionStatus: GetMotionStatusText(conflictAssessment),
+            targetViewOffsetDegrees: CalculateTargetViewOffsetDegrees(relevantAircraft)
+        );
 
             hudController.RenderTraffic(snapshot);
 
@@ -1010,6 +1013,43 @@ private OwnshipMotionState GetMotionStateForConflictScenario(OwnshipGeoState own
         speedMps: 45.0,
         altitudeMeters: ownshipState != null ? ownshipState.AltitudeMeters : null,
         reason: "Fallback scenario motion."
+    );
+}
+
+
+
+
+
+
+
+/// <summary>
+/// Calcula el desplazamiento angular del target respecto a la dirección actual de mirada.
+/// Valor negativo: el target queda hacia la izquierda.
+/// Valor positivo: el target queda hacia la derecha.
+/// Valor cercano a cero: el target está centrado en la mirada.
+/// </summary>
+private double? CalculateTargetViewOffsetDegrees(AircraftGeoState aircraft)
+{
+    if (aircraft == null || lastOwnshipState == null || headsetOrientationProvider == null)
+    {
+        return null;
+    }
+
+    double aircraftHeadingDegrees = headsetOrientationProvider.GetAircraftHeadingDegrees();
+
+    double bearingDegrees = GeoBearingCalculator.BearingDegrees(
+        lastOwnshipState,
+        aircraft
+    );
+
+    double relativeBearingDegrees = GeoBearingCalculator.NormalizeSigned180(
+        bearingDegrees - aircraftHeadingDegrees
+    );
+
+    double headYawDegrees = headsetOrientationProvider.GetHeadRelativeYawDegrees();
+
+    return GeoBearingCalculator.NormalizeSigned180(
+        relativeBearingDegrees - headYawDegrees
     );
 }
     }

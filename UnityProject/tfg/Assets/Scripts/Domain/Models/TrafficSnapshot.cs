@@ -5,11 +5,11 @@
  * sobre el tráfico aéreo cercano.
  *
  * Guarda el resumen general del tráfico, el riesgo calculado, los datos de
- * la aeronave seleccionada como TARGET y la información inicial de predicción
- * de conflicto de trayectoria.
+ * la aeronave seleccionada como TARGET, la información de predicción de
+ * conflicto y una indicación angular visual del target respecto a la mirada.
  *
  * Se conecta con:
- * - OpenSkyApiClient: crea este snapshot con datos reales de OpenSky.
+ * - OpenSkyApiClient: crea este snapshot con datos reales o simulados.
  * - HudController: lee este snapshot y lo muestra en el panel derecho del visor.
  */
 
@@ -36,6 +36,8 @@ namespace TFG.ARVisor.Domain.Models
         public string TimeToClosestApproach { get; }
         public string MotionStatus { get; }
 
+        public double? TargetViewOffsetDegrees { get; }
+
         /// <summary>
         /// Crea el resumen de tráfico que será mostrado en el HUD.
         /// </summary>
@@ -54,7 +56,8 @@ namespace TFG.ARVisor.Domain.Models
             string conflictStatus = "",
             string closestApproachDistance = "",
             string timeToClosestApproach = "",
-            string motionStatus = "")
+            string motionStatus = "",
+            double? targetViewOffsetDegrees = null)
         {
             NearbyAircraft = nearbyAircraft;
             NearestDistance = nearestDistance;
@@ -74,6 +77,8 @@ namespace TFG.ARVisor.Domain.Models
             ClosestApproachDistance = closestApproachDistance;
             TimeToClosestApproach = timeToClosestApproach;
             MotionStatus = motionStatus;
+
+            TargetViewOffsetDegrees = targetViewOffsetDegrees;
         }
     }
 }
