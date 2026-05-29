@@ -4,17 +4,21 @@
  * Este script controla los textos principales del HUD del visor.
  *
  * Su función es recibir datos ya procesados por otros módulos y mostrarlos
- * en pantalla de forma clara:
+ * en pantalla de forma clara y adaptativa:
  * - estado del sistema,
  * - estado del GPS,
  * - tráfico aéreo cercano,
  * - aeronave seleccionada como TARGET,
- * - sector hacia el que mira el piloto,
- * - sector donde se encuentra la aeronave,
+ * - guía visual según la dirección del target,
  * - predicción inicial de conflicto,
  * - nivel de riesgo,
  * - mensaje superior de alerta,
  * - retícula central.
+ *
+ * La filosofía del HUD es no saturar al piloto:
+ * - LOW: información mínima y discreta.
+ * - MED: aviso moderado con CPA/TCPA y guía visual.
+ * - HIGH: alerta clara con información crítica y guía visual destacada.
  *
  * Se conecta con:
  * - ExternalGpsProvider: actualiza el panel izquierdo con GPS REAL / WAIT.
@@ -22,6 +26,7 @@
  * - TrafficSnapshot: modelo de datos que contiene la información que se muestra.
  */
 
+using System;
 using TFG.ARVisor.Domain.Models;
 using TMPro;
 using UnityEngine;
@@ -111,7 +116,7 @@ namespace TFG.ARVisor.Presentation.HUD
         }
 
         /// <summary>
-        /// Construye el texto del panel derecho con una estructura más simple e intuitiva.
+        /// Construye el texto principal del panel derecho de forma adaptativa según el riesgo.
         /// </summary>
         private string BuildTrafficText(TrafficSnapshot snapshot)
         {
@@ -127,31 +132,60 @@ namespace TFG.ARVisor.Presentation.HUD
             string riskLabel = GetRiskLabel(snapshot.RiskLevel);
             string riskColor = GetRiskHexColor(snapshot.RiskLevel);
 
-            if (!HasRelevantAircraft(snapshot))
+            if (snapshot.RiskLevel == RiskLevel.Low)
             {
-                return BuildNoTargetText(snapshot, riskLabel, riskColor);
+                return BuildLowRiskText(snapshot, riskLabel, riskColor);
             }
 
-            return BuildTargetText(snapshot, riskLabel, riskColor);
+            if (!HasRelevantAircraft(snapshot))
+            {
+                return BuildNoTargetWarningText(snapshot, riskLabel, riskColor);
+            }
+
+            return BuildActiveRiskTargetText(snapshot, riskLabel, riskColor);
         }
 
         /// <summary>
-        /// Construye el panel cuando existe una aeronave seleccionada como objetivo.
+        /// Construye un HUD mínimo cuando no hay riesgo relevante.
         /// </summary>
-        private string BuildTargetText(TrafficSnapshot snapshot, string riskLabel, string riskColor)
+        private string BuildLowRiskText(TrafficSnapshot snapshot, string riskLabel, string riskColor)
+        {
+            string nearestLine = HasRelevantAircraft(snapshot)
+                ? $"NEAREST {snapshot.RelevantCallsign}\n{ExtractSectorName(snapshot.TargetSector)} · {FormatHudValue(snapshot.NearestDistance)}\n"
+                : $"NEAREST {FormatHudValue(snapshot.NearestDistance)}\n";
+
+            string scenarioLine = BuildScenarioLine(snapshot.SelectionMode);
+
+            return
+                "<size=78%>AIRSPACE</size>\n" +
+                "<size=120%>PATH CLEAR</size>\n" +
+                scenarioLine +
+                "\n" +
+                nearestLine +
+                $"TRAF {snapshot.NearbyAircraft}\n" +
+                $"RISK <color={riskColor}>{riskLabel}</color>";
+        }
+
+        /// <summary>
+        /// Construye el HUD cuando hay riesgo medio o alto y existe una aeronave relevante.
+        /// </summary>
+        private string BuildActiveRiskTargetText(TrafficSnapshot snapshot, string riskLabel, string riskColor)
         {
             string viewSector = ExtractSectorName(snapshot.ViewSector);
             string targetSector = ExtractSectorName(snapshot.TargetSector);
             string selectionMode = FormatSelectionMode(snapshot.SelectionMode);
-            string predictionBlock = BuildPredictionBlock(snapshot);
+            string status = FormatConflictStatus(snapshot.ConflictStatus, snapshot.RiskLevel);
+            string guidance = BuildVisualGuidanceText(snapshot);
 
             return
                 "<size=78%>AIRSPACE</size>\n" +
-                BuildCabinRadar(snapshot) + "\n\n" +
-                $"<size=72%>VIEW {viewSector} · {selectionMode}</size>\n" +
-                $"<size=125%>{FormatHudValue(snapshot.RelevantCallsign)}</size>\n" +
-                $"<size=82%>{targetSector} · {FormatHudValue(snapshot.NearestDistance)}</size>\n\n" +
-                predictionBlock +
+                $"<size=120%><color={riskColor}>{status}</color></size>\n" +
+                BuildCabinSectorLine(snapshot) + "\n" +
+                $"<size=70%>VIEW {viewSector} · {selectionMode}</size>\n" +
+                $"<size=125%>{snapshot.RelevantCallsign}</size>\n" +
+                $"<size=82%>{targetSector} · {FormatHudValue(snapshot.NearestDistance)}</size>\n" +
+                $"<size=74%>{guidance}</size>\n\n" +
+                BuildPredictionBlock(snapshot) +
                 $"ALT  {FormatHudValue(snapshot.RelevantAltitude)}\n" +
                 $"HDG  {FormatHudValue(snapshot.RelevantHeading)}\n" +
                 $"TRAF {snapshot.NearbyAircraft}\n" +
@@ -159,29 +193,29 @@ namespace TFG.ARVisor.Presentation.HUD
         }
 
         /// <summary>
-        /// Construye el panel cuando no hay aeronave objetivo seleccionada.
+        /// Construye el HUD cuando hay riesgo, pero no existe una aeronave relevante que mostrar.
         /// </summary>
-        private string BuildNoTargetText(TrafficSnapshot snapshot, string riskLabel, string riskColor)
+        private string BuildNoTargetWarningText(TrafficSnapshot snapshot, string riskLabel, string riskColor)
         {
             string viewSector = ExtractSectorName(snapshot.ViewSector);
-            string predictionBlock = BuildPredictionBlock(snapshot);
+            string status = FormatConflictStatus(snapshot.ConflictStatus, snapshot.RiskLevel);
 
             return
                 "<size=78%>AIRSPACE</size>\n" +
-                BuildCabinRadar(snapshot) + "\n\n" +
-                $"<size=72%>VIEW {viewSector}</size>\n" +
+                $"<size=120%><color={riskColor}>{status}</color></size>\n" +
+                $"<size=70%>VIEW {viewSector}</size>\n" +
                 "<size=115%>NO TARGET</size>\n\n" +
-                predictionBlock +
+                BuildPredictionBlock(snapshot) +
                 $"TRAF {snapshot.NearbyAircraft}\n" +
                 $"NEAR {FormatHudValue(snapshot.NearestDistance)}\n" +
                 $"RISK <color={riskColor}>{riskLabel}</color>";
         }
 
         /// <summary>
-        /// Construye una línea de radar compacta con los cuatro sectores principales de cabina.
-        /// El punto coloreado indica el sector donde está el target.
+        /// Construye una línea compacta de sectores de cabina.
+        /// No es un radar real: indica en qué sector relativo está el target.
         /// </summary>
-        private string BuildCabinRadar(TrafficSnapshot snapshot)
+        private string BuildCabinSectorLine(TrafficSnapshot snapshot)
         {
             string targetSector = snapshot != null
                 ? ExtractSectorName(snapshot.TargetSector)
@@ -191,18 +225,18 @@ namespace TFG.ARVisor.Presentation.HUD
                 ? snapshot.RiskLevel
                 : RiskLevel.Low;
 
-            string front = BuildRadarDot("FRONT", targetSector, riskLevel);
-            string left = BuildRadarDot("LEFT", targetSector, riskLevel);
-            string right = BuildRadarDot("RIGHT", targetSector, riskLevel);
-            string rear = BuildRadarDot("REAR", targetSector, riskLevel);
+            string front = BuildSectorDot("FRONT", targetSector, riskLevel);
+            string left = BuildSectorDot("LEFT", targetSector, riskLevel);
+            string right = BuildSectorDot("RIGHT", targetSector, riskLevel);
+            string rear = BuildSectorDot("REAR", targetSector, riskLevel);
 
-            return $"RADAR F{front}  L{left}  R{right}  B{rear}";
+            return $"<size=72%>SECTOR F{front}  L{left}  R{right}  B{rear}</size>";
         }
 
         /// <summary>
-        /// Devuelve el punto del radar para un sector concreto.
+        /// Devuelve el punto de sector para indicar dónde está el target.
         /// </summary>
-        private string BuildRadarDot(string sectorName, string targetSector, RiskLevel riskLevel)
+        private string BuildSectorDot(string sectorName, string targetSector, RiskLevel riskLevel)
         {
             if (targetSector == sectorName)
             {
@@ -214,9 +248,8 @@ namespace TFG.ARVisor.Presentation.HUD
 
         /// <summary>
         /// Construye el bloque de predicción del HUD.
-        /// Si no hay predicción fiable, muestra espera.
-        /// Si el riesgo es bajo, muestra camino despejado sin saturar con CPA/TCPA.
-        /// Si hay riesgo medio o alto, muestra CPA e IN.
+        /// En LOW se oculta CPA/TCPA para no saturar.
+        /// En MED/HIGH se muestra CPA/TCPA porque es información crítica.
         /// </summary>
         private string BuildPredictionBlock(TrafficSnapshot snapshot)
         {
@@ -225,85 +258,42 @@ namespace TFG.ARVisor.Presentation.HUD
                 return "";
             }
 
-            string status = string.IsNullOrWhiteSpace(snapshot.ConflictStatus)
-                ? "PRED WAIT"
-                : snapshot.ConflictStatus;
-
-            bool hasCpa = !string.IsNullOrWhiteSpace(snapshot.ClosestApproachDistance) &&
-                        snapshot.ClosestApproachDistance != "--";
-
-            bool hasTcpa = !string.IsNullOrWhiteSpace(snapshot.TimeToClosestApproach) &&
-                        snapshot.TimeToClosestApproach != "--";
+            bool hasCpa = HasDisplayValue(snapshot.ClosestApproachDistance);
+            bool hasTcpa = HasDisplayValue(snapshot.TimeToClosestApproach);
 
             if (!hasCpa || !hasTcpa)
             {
-                return $"{status}\n";
+                return "PRED WAIT\n";
             }
 
             if (snapshot.RiskLevel == RiskLevel.Low)
             {
-                return "PATH CLEAR\n";
+                return "";
             }
 
             return
-                $"{status}\n" +
                 $"CPA  {snapshot.ClosestApproachDistance}\n" +
                 $"IN   {snapshot.TimeToClosestApproach}\n";
         }
 
         /// <summary>
-        /// Devuelve un estado de predicción claro cuando todavía no hay CPA/TCPA fiable.
+        /// Construye una línea opcional para indicar que se está usando un escenario de prueba.
         /// </summary>
-        private string FormatPredictionStatus(string motionStatus, string conflictStatus)
+        private string BuildScenarioLine(string selectionMode)
         {
-            if (!string.IsNullOrWhiteSpace(motionStatus) &&
-                motionStatus.ToUpperInvariant().Contains("WAIT"))
+            if (string.IsNullOrWhiteSpace(selectionMode))
             {
-                return "PRED WAIT";
+                return "";
             }
 
-            if (!string.IsNullOrWhiteSpace(conflictStatus) &&
-                conflictStatus.ToUpperInvariant().Contains("NO PREDICTION"))
+            string upper = selectionMode.ToUpperInvariant();
+
+            if (!upper.Contains("SCENARIO"))
             {
-                return "PRED WAIT";
+                return "";
             }
 
-            if (!string.IsNullOrWhiteSpace(motionStatus))
-            {
-                return motionStatus;
-            }
-
-            return "PRED WAIT";
-        }
-
-        /// <summary>
-        /// Simplifica el estado de conflicto para mostrarlo de forma breve en el HUD.
-        /// </summary>
-        private string FormatConflictStatus(string conflictStatus)
-        {
-            if (string.IsNullOrWhiteSpace(conflictStatus))
-            {
-                return "PRED OK";
-            }
-
-            string upper = conflictStatus.ToUpperInvariant();
-
-            if (upper.Contains("CONFLICT"))
-            {
-                return "CONFLICT";
-            }
-
-            if (upper.Contains("WATCH"))
-            {
-                return "WATCH";
-            }
-
-            if (upper.Contains("CLEAR"))
-            {
-                return "PATH CLEAR";
-            }
-
-            return conflictStatus;
+            return $"<size=64%>{selectionMode}</size>\n";
         }
 
         /// <summary>
@@ -371,6 +361,11 @@ namespace TFG.ARVisor.Presentation.HUD
 
             string upper = selectionMode.ToUpperInvariant();
 
+            if (upper.Contains("SCENARIO"))
+            {
+                return "TEST MODE";
+            }
+
             if (upper.Contains("CONFLICT"))
             {
                 return "CONFLICT";
@@ -390,7 +385,42 @@ namespace TFG.ARVisor.Presentation.HUD
         }
 
         /// <summary>
-        /// Actualiza la retícula central según si hay target y según el nivel de riesgo.
+        /// Simplifica el estado de conflicto para mostrarlo como encabezado principal.
+        /// </summary>
+        private string FormatConflictStatus(string conflictStatus, RiskLevel riskLevel)
+        {
+            if (riskLevel == RiskLevel.High)
+            {
+                return "CONFLICT RISK";
+            }
+
+            if (riskLevel == RiskLevel.Medium)
+            {
+                return "TRAJECTORY WATCH";
+            }
+
+            if (string.IsNullOrWhiteSpace(conflictStatus))
+            {
+                return "PATH CLEAR";
+            }
+
+            string upper = conflictStatus.ToUpperInvariant();
+
+            if (upper.Contains("CONFLICT"))
+            {
+                return "CONFLICT RISK";
+            }
+
+            if (upper.Contains("WATCH"))
+            {
+                return "TRAJECTORY WATCH";
+            }
+
+            return "PATH CLEAR";
+        }
+
+        /// <summary>
+        /// Actualiza la retícula central según el nivel de riesgo y la dirección angular del target.
         /// </summary>
         private void UpdateReticle(TrafficSnapshot snapshot)
         {
@@ -399,33 +429,97 @@ namespace TFG.ARVisor.Presentation.HUD
                 return;
             }
 
-            if (snapshot == null || !HasRelevantAircraft(snapshot))
+            if (snapshot == null || !HasRelevantAircraft(snapshot) || snapshot.RiskLevel == RiskLevel.Low)
             {
                 reticleText.text = "+";
                 reticleText.color = new Color(0.85f, 0.85f, 0.85f);
                 return;
             }
 
-            switch (snapshot.RiskLevel)
-            {
-                case RiskLevel.High:
-                    reticleText.text = "[!]";
-                    break;
-
-                case RiskLevel.Medium:
-                    reticleText.text = "[!]";
-                    break;
-
-                default:
-                    reticleText.text = "[+]";
-                    break;
-            }
-
+            reticleText.text = BuildReticleMarker(snapshot);
             reticleText.color = GetRiskColor(snapshot.RiskLevel);
         }
 
         /// <summary>
+        /// Construye el marcador central del HUD según la posición angular del target respecto a la mirada.
+        /// </summary>
+        private string BuildReticleMarker(TrafficSnapshot snapshot)
+        {
+            if (snapshot == null || !snapshot.TargetViewOffsetDegrees.HasValue)
+            {
+                return snapshot != null && snapshot.RiskLevel == RiskLevel.High ? "[!]" : "[+]";
+            }
+
+            double offset = snapshot.TargetViewOffsetDegrees.Value;
+            double absoluteOffset = Math.Abs(offset);
+
+            if (absoluteOffset <= 12.0)
+            {
+                return snapshot.RiskLevel == RiskLevel.High ? "[!]" : "[+]";
+            }
+
+            if (absoluteOffset <= 45.0)
+            {
+                return offset > 0.0 ? "+ >" : "< +";
+            }
+
+            if (absoluteOffset <= 120.0)
+            {
+                return offset > 0.0 ? ">>" : "<<";
+            }
+
+            return "v";
+        }
+
+        /// <summary>
+        /// Construye una indicación textual breve para orientar al piloto hacia el target.
+        /// Solo se muestra cuando el riesgo es MED/HIGH.
+        /// </summary>
+        private string BuildVisualGuidanceText(TrafficSnapshot snapshot)
+        {
+            if (snapshot == null || !HasRelevantAircraft(snapshot))
+            {
+                return "";
+            }
+
+            if (snapshot.RiskLevel == RiskLevel.Low)
+            {
+                return "";
+            }
+
+            if (!snapshot.TargetViewOffsetDegrees.HasValue)
+            {
+                return "TARGET DIRECTION --";
+            }
+
+            double offset = snapshot.TargetViewOffsetDegrees.Value;
+            double absoluteOffset = Math.Abs(offset);
+
+            if (absoluteOffset <= 12.0)
+            {
+                return "TARGET CENTERED";
+            }
+
+            if (absoluteOffset <= 45.0)
+            {
+                return offset > 0.0
+                    ? "SLIGHT RIGHT >"
+                    : "< SLIGHT LEFT";
+            }
+
+            if (absoluteOffset <= 120.0)
+            {
+                return offset > 0.0
+                    ? "LOOK RIGHT >>"
+                    : "<< LOOK LEFT";
+            }
+
+            return "TARGET BEHIND";
+        }
+
+        /// <summary>
         /// Actualiza el mensaje superior de alerta y lo hace más visible según el nivel de riesgo.
+        /// En LOW se deja vacío para no invadir el campo de visión.
         /// </summary>
         private void RenderAlert(string message, RiskLevel riskLevel)
         {
@@ -449,7 +543,7 @@ namespace TFG.ARVisor.Presentation.HUD
                     break;
 
                 default:
-                    alertText.text = safeMessage;
+                    alertText.text = "";
                     break;
             }
 
