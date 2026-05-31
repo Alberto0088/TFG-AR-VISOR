@@ -290,7 +290,7 @@ MonoBehaviour:
   minimumDistanceMeters: 20
   minimumSpeedMps: 1
   useDebugMotion: 1
-  debugTrackDegrees: 0
+  debugTrackDegrees: 90
   debugSpeedMps: 45
   logMotionToConsole: 0
 --- !u!4 &299444312
@@ -1338,6 +1338,9 @@ MonoBehaviour:
   logRawJsonPreview: 0
   logConflictPredictionToConsole: 1
   conflictLogIntervalSeconds: 3
+  useConflictTestScenario: 1
+  conflictTestScenario: 0
+  includeRealTrafficWithTestScenario: 0
 --- !u!4 &2058325481
 Transform:
   m_ObjectHideFlags: 0

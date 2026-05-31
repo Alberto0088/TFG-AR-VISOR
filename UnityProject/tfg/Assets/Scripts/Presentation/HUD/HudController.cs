@@ -41,6 +41,9 @@ namespace TFG.ARVisor.Presentation.HUD
         [SerializeField] private TMP_Text alertText;
         [SerializeField] private TMP_Text reticleText;
 
+        [Header("HUD Visual References")]
+        [SerializeField] private WorldTargetBox worldTargetBox;
+
         /// <summary>
         /// Inicializa el HUD con valores por defecto para evitar textos vacíos al arrancar la escena.
         /// </summary>
@@ -108,6 +111,11 @@ namespace TFG.ARVisor.Presentation.HUD
             }
 
             UpdateReticle(snapshot);
+
+            if (worldTargetBox != null)
+            {
+                worldTargetBox.RenderBox(snapshot);
+            }
 
             if (snapshot != null)
             {
