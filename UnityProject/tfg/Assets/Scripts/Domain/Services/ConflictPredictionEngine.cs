@@ -157,34 +157,51 @@ namespace TFG.ARVisor.Domain.Services
                 );
             }
 
-            double tcpaSeconds = -Dot(relativePosition, relativeVelocity) / relativeSpeedSquared;
-            tcpaSeconds = Math.Max(0.0, Math.Min(tcpaSeconds, LookAheadSeconds));
+            double rawTcpaSeconds = -Dot(relativePosition, relativeVelocity) / relativeSpeedSquared;
+bool closestApproachAlreadyPassed = rawTcpaSeconds <= 0.0;
 
-            Vector2Meters closestPosition = new Vector2Meters(
-                relativePosition.EastMeters + relativeVelocity.EastMeters * tcpaSeconds,
-                relativePosition.NorthMeters + relativeVelocity.NorthMeters * tcpaSeconds
-            );
+double tcpaSeconds = Math.Max(0.0, Math.Min(rawTcpaSeconds, LookAheadSeconds));
 
-            double cpaDistanceKm = closestPosition.Magnitude / 1000.0;
-            double? verticalSeparationMeters = CalculateVerticalSeparation(ownshipState, aircraft);
+Vector2Meters closestPosition = new Vector2Meters(
+    relativePosition.EastMeters + relativeVelocity.EastMeters * tcpaSeconds,
+    relativePosition.NorthMeters + relativeVelocity.NorthMeters * tcpaSeconds
+);
 
-            RiskLevel riskLevel = ClassifyRisk(
-                cpaDistanceKm,
-                tcpaSeconds,
-                verticalSeparationMeters
-            );
+double cpaDistanceKm = closestPosition.Magnitude / 1000.0;
+double? verticalSeparationMeters = CalculateVerticalSeparation(ownshipState, aircraft);
 
-            return new ConflictAssessment(
-                aircraft,
-                true,
-                currentDistanceKm,
-                cpaDistanceKm,
-                tcpaSeconds,
-                verticalSeparationMeters,
-                riskLevel,
-                GetAlertMessage(riskLevel),
-                "CPA/TCPA prediction."
-            );
+if (closestApproachAlreadyPassed)
+{
+    return new ConflictAssessment(
+        aircraft,
+        true,
+        currentDistanceKm,
+        cpaDistanceKm,
+        0.0,
+        verticalSeparationMeters,
+        RiskLevel.Low,
+        "NO ALERTS",
+        "Closest approach already passed."
+    );
+}
+
+RiskLevel riskLevel = ClassifyRisk(
+    cpaDistanceKm,
+    tcpaSeconds,
+    verticalSeparationMeters
+);
+
+return new ConflictAssessment(
+    aircraft,
+    true,
+    currentDistanceKm,
+    cpaDistanceKm,
+    tcpaSeconds,
+    verticalSeparationMeters,
+    riskLevel,
+    GetAlertMessage(riskLevel),
+    "CPA/TCPA prediction."
+);
         }
 
         /// <summary>
