@@ -307,25 +307,43 @@ namespace TFG.ARVisor.Presentation.HUD
             rect.offsetMax = Vector2.zero;
         }
 
-        private string BuildLabel(TrafficSnapshot snapshot)
+       private string BuildLabel(TrafficSnapshot snapshot)
+{
+    string callsign = string.IsNullOrWhiteSpace(snapshot.RelevantCallsign)
+        ? "TARGET"
+        : snapshot.RelevantCallsign;
+
+    string distance = string.IsNullOrWhiteSpace(snapshot.NearestDistance)
+        ? "--"
+        : snapshot.NearestDistance;
+
+    string timeToConflict = string.IsNullOrWhiteSpace(snapshot.TimeToClosestApproach) ||
+                            snapshot.TimeToClosestApproach == "--"
+        ? ""
+        : snapshot.TimeToClosestApproach;
+
+    if (snapshot.RiskLevel == RiskLevel.High)
+    {
+        if (!string.IsNullOrWhiteSpace(timeToConflict))
         {
-            string callsign = string.IsNullOrWhiteSpace(snapshot.RelevantCallsign)
-                ? "TARGET"
-                : snapshot.RelevantCallsign;
-
-            string distance = string.IsNullOrWhiteSpace(snapshot.NearestDistance)
-                ? "--"
-                : snapshot.NearestDistance;
-
-            if (snapshot.RiskLevel == RiskLevel.High &&
-                !string.IsNullOrWhiteSpace(snapshot.ClosestApproachDistance) &&
-                snapshot.ClosestApproachDistance != "--")
-            {
-                return $"{callsign}\nCPA {snapshot.ClosestApproachDistance}";
-            }
-
-            return $"{callsign}\n{distance}";
+            return $"{callsign}\n{distance}\nIN {timeToConflict}";
         }
+
+        return $"{callsign}\n{distance}";
+    }
+
+    if (snapshot.RiskLevel == RiskLevel.Medium)
+    {
+        if (!string.IsNullOrWhiteSpace(timeToConflict))
+        {
+            return $"{callsign}\n{distance}\nIN {timeToConflict}";
+        }
+
+        return $"{callsign}\n{distance}";
+    }
+
+    return $"{callsign}\n{distance}";
+}
 
         private void ApplyColor(Color color, RiskLevel risk)
         {

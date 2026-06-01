@@ -32,6 +32,7 @@
  * - HudController: muestra la información en el visor.
  */
 
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using TFG.ARVisor.Domain.Models;
@@ -89,7 +90,12 @@ namespace TFG.ARVisor.Infrastructure.ApiClients
         private ConflictAssessment lastConflictAssessment;
         private float nextHudTargetRefreshTime;
         
+        private List<AircraftGeoState> activeScenarioAircraft;
+        private ConflictTestScenarioType activeScenarioType;
+        private double activeScenarioTrackDegrees;
 
+        private OwnshipGeoState simulatedOwnshipStartState;
+        private float simulatedOwnshipStartTime;
         private float nextConflictLogTime;
         /// <summary>
         /// Inicia el ciclo de consultas a OpenSky cuando arranca la escena.
@@ -275,33 +281,51 @@ private IEnumerator PollOpenSkyLoop()
         }
 
         /// <summary>
-        /// Actualiza el HUD usando los últimos datos válidos de tráfico, la orientación actual del visor
-        /// y la predicción actualizada de conflicto, sin realizar nuevas peticiones a OpenSky.
-        /// </summary>
-        private void RefreshHudTargetFromCachedTraffic()
-        {
-            if (lastOwnshipState == null || lastRiskAssessment == null)
-            {
-                return;
-            }
+/// Actualiza el HUD usando tráfico cacheado, pero prediciendo la posición actual
+/// de las aeronaves entre actualizaciones externas.
+/// </summary>
+private void RefreshHudTargetFromCachedTraffic()
+{
+    if (lastOwnshipState == null || lastNearbyAircraft == null || lastNearbyAircraft.Count == 0)
+    {
+        return;
+    }
 
-            AircraftTargetSelectionResult targetSelection = SelectHudTarget(
-                lastOwnshipState,
-                lastNearbyAircraft
-            );
+    OwnshipGeoState currentOwnshipState = gpsProvider != null && gpsProvider.CurrentState != null
+        ? gpsProvider.CurrentState
+        : lastOwnshipState;
 
-            lastConflictAssessment = EvaluateConflictPrediction(
-                lastOwnshipState,
-                lastNearbyAircraft
-            );
+    List<AircraftGeoState> predictedAircraft =
+        AircraftMotionPredictor.PredictAircraftPositions(
+            lastNearbyAircraft,
+            maxPredictionSeconds: 120.0
+        );
 
-            UpdateHudWithRisk(lastRiskAssessment, targetSelection, lastConflictAssessment);
+    RiskAssessment riskAssessment = RiskEngine.Evaluate(
+        currentOwnshipState,
+        predictedAircraft
+    );
 
-            if (logHudTargetRefresh)
-            {
-                Debug.Log("HUD target and conflict prediction refreshed from cached traffic.");
-            }
-        }
+    ConflictAssessment conflictAssessment = EvaluateConflictPrediction(
+        currentOwnshipState,
+        predictedAircraft
+    );
+
+    lastOwnshipState = currentOwnshipState;
+    lastRiskAssessment = riskAssessment;
+    lastConflictAssessment = conflictAssessment;
+
+    AircraftTargetSelectionResult targetSelection = SelectHudTarget(
+        currentOwnshipState,
+        predictedAircraft
+    );
+
+    UpdateHudWithRisk(
+        riskAssessment,
+        targetSelection,
+        conflictAssessment
+    );
+}
 
         /// <summary>
         /// Selecciona la aeronave que debe mostrarse como TARGET en el HUD.
@@ -940,8 +964,9 @@ private List<AircraftGeoState> ApplyConflictTestScenario(
 
 
 /// <summary>
-/// Actualiza el HUD usando únicamente un escenario controlado de conflicto.
-/// Este modo no depende de OpenSky y permite probar LOW / MED / HIGH desde el Inspector.
+/// Actualiza el HUD usando un escenario controlado de conflicto.
+/// El escenario se genera una vez y después se predice su movimiento,
+/// para simular desplazamiento dinámico del target.
 /// </summary>
 private void RefreshConflictTestScenarioFromCurrentGps()
 {
@@ -950,36 +975,44 @@ private void RefreshConflictTestScenarioFromCurrentGps()
         return;
     }
 
-    OwnshipGeoState ownshipState = gpsProvider.CurrentState;
+    OwnshipGeoState realOwnshipState = gpsProvider.CurrentState;
+    OwnshipMotionState motionState = GetMotionStateForConflictScenario(realOwnshipState);
 
-    OwnshipMotionState motionState = GetMotionStateForConflictScenario(ownshipState);
+    OwnshipGeoState ownshipState = GetOwnshipStateForConflictScenario();
 
-    List<AircraftGeoState> scenarioAircraft =
-        TFG.ARVisor.Domain.Services.ConflictTestScenarioFactory.CreateScenarioAircraft(
+    if (ShouldRegenerateScenario(conflictTestScenario, motionState))
+    {
+        RegenerateActiveScenario(
             ownshipState,
-            motionState,
-            conflictTestScenario
+            motionState
+        );
+    }
+
+    List<AircraftGeoState> predictedScenarioAircraft =
+        AircraftMotionPredictor.PredictAircraftPositions(
+            activeScenarioAircraft,
+            maxPredictionSeconds: 300.0
         );
 
     RiskAssessment riskAssessment = RiskEngine.Evaluate(
         ownshipState,
-        scenarioAircraft
+        predictedScenarioAircraft
     );
 
     ConflictAssessment conflictAssessment = ConflictPredictionEngine.EvaluateMostCritical(
         ownshipState,
         motionState,
-        scenarioAircraft
+        predictedScenarioAircraft
     );
 
     lastOwnshipState = ownshipState;
-    lastNearbyAircraft = scenarioAircraft;
+    lastNearbyAircraft = predictedScenarioAircraft;
     lastRiskAssessment = riskAssessment;
     lastConflictAssessment = conflictAssessment;
 
     AircraftTargetSelectionResult targetSelection = SelectHudTarget(
         ownshipState,
-        scenarioAircraft
+        predictedScenarioAircraft
     );
 
     UpdateHudWithRisk(
@@ -1051,6 +1084,108 @@ private double? CalculateTargetViewOffsetDegrees(AircraftGeoState aircraft)
     return GeoBearingCalculator.NormalizeSigned180(
         relativeBearingDegrees - headYawDegrees
     );
+}
+
+
+/// <summary>
+/// Indica si el escenario de prueba debe regenerarse.
+/// Solo se regenera al cambiar el tipo de escenario o si todavía no existe.
+/// Cambiar el rumbo propio NO debe reiniciar el avión simulado.
+/// </summary>
+private bool ShouldRegenerateScenario(
+    ConflictTestScenarioType scenarioType,
+    OwnshipMotionState motionState)
+{
+    bool hasNoScenario = activeScenarioAircraft == null || activeScenarioAircraft.Count == 0;
+    bool scenarioChanged = activeScenarioType != scenarioType;
+
+    return hasNoScenario || scenarioChanged;
+}
+
+/// <summary>
+/// Regenera el escenario activo con la posición propia y rumbo actual.
+/// </summary>
+private void RegenerateActiveScenario(
+    OwnshipGeoState ownshipState,
+    OwnshipMotionState motionState)
+{
+    ResetSimulatedOwnshipState();
+
+    activeScenarioType = conflictTestScenario;
+
+    activeScenarioTrackDegrees = motionState != null && motionState.TrackDegrees.HasValue
+        ? motionState.TrackDegrees.Value
+        : 90.0;
+
+    activeScenarioAircraft =
+        TFG.ARVisor.Domain.Services.ConflictTestScenarioFactory.CreateScenarioAircraft(
+            ownshipState,
+            motionState,
+            conflictTestScenario
+        );
+}
+
+
+/// <summary>
+/// Devuelve la posición propia que se debe usar en modo escenario.
+/// En escenarios de prueba, simula el desplazamiento del usuario a partir de
+/// la posición inicial, el rumbo debug y la velocidad debug.
+/// </summary>
+private OwnshipGeoState GetOwnshipStateForConflictScenario()
+{
+    if (gpsProvider == null || gpsProvider.CurrentState == null)
+    {
+        return lastOwnshipState;
+    }
+
+    OwnshipGeoState realState = gpsProvider.CurrentState;
+
+    OwnshipMotionState motionState = GetMotionStateForConflictScenario(realState);
+
+    if (motionState == null ||
+        !motionState.HasReliableMotion ||
+        !motionState.TrackDegrees.HasValue ||
+        !motionState.SpeedMps.HasValue)
+    {
+        return realState;
+    }
+
+    if (simulatedOwnshipStartState == null)
+    {
+        simulatedOwnshipStartState = realState;
+        simulatedOwnshipStartTime = Time.time;
+    }
+
+    float elapsedSeconds = Time.time - simulatedOwnshipStartTime;
+
+    double travelledMeters = motionState.SpeedMps.Value * elapsedSeconds;
+
+    GeoProjectionCalculator.ProjectFromLocalOffset(
+        simulatedOwnshipStartState.Latitude,
+        simulatedOwnshipStartState.Longitude,
+        motionState.TrackDegrees.Value,
+        forwardMeters: travelledMeters,
+        rightMeters: 0.0,
+        out double simulatedLatitude,
+        out double simulatedLongitude
+    );
+
+    return new OwnshipGeoState(
+        simulatedLatitude,
+        simulatedLongitude,
+        simulatedOwnshipStartState.AltitudeMeters,
+        DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+        simulatedOwnshipStartState.AltitudeQuality
+    );
+}
+
+/// <summary>
+/// Reinicia la simulación de posición propia usada en escenarios de prueba.
+/// </summary>
+private void ResetSimulatedOwnshipState()
+{
+    simulatedOwnshipStartState = null;
+    simulatedOwnshipStartTime = Time.time;
 }
     }
 
