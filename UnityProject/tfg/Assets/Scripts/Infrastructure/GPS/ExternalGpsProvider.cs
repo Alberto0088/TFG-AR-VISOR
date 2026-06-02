@@ -127,6 +127,12 @@ namespace TFG.ARVisor.Infrastructure.Gps
                 mode: modeText,
                 updateRate: updateRateText
             );
+
+            hudController.RenderGpsCoordinates(
+                CurrentState.Latitude,
+                CurrentState.Longitude,
+                CurrentState.AltitudeMeters
+            );
         }
 
         private void UpdateHudWaiting()

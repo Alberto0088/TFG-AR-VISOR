@@ -1,12 +1,20 @@
 /*
- * WorldTargetBox.cs
+ * WorldTargetBox.cs  —  v0.10-alpha Visual Redesign
  * ------------------------------------------------------------
- * Caja pseudo-AR para marcar visualmente el target en el campo de visión.
+ * Caja pseudo-AR de seguimiento tipo visor de combate.
+ *
+ * Mejoras respecto a la versión anterior:
+ *   - Fade in/out suave (lerp alpha en lugar de snap).
+ *   - Scan-line animada que barre la caja verticalmente en estado HIGH.
+ *   - Esquinas más finas y elegantes.
+ *   - Label mínimo: callsign + distancia, o callsign + IN si hay TCPA en HIGH.
+ *   - Fondo translúcido levemente más visible en HIGH.
+ *   - Posición estable con lerp suavizado.
+ *   - Se oculta si el target sale del campo visual.
  *
  * No modifica la retícula central.
- * No es texto flotante del HUD 2D.
  * Es un Canvas en World Space que se coloca delante de la cámara en la dirección
- * aproximada del target.
+ * aproximada del target según TargetViewOffsetDegrees del snapshot.
  */
 
 using System;
@@ -21,409 +29,379 @@ namespace TFG.ARVisor.Presentation.HUD
     [RequireComponent(typeof(CanvasGroup))]
     public class WorldTargetBox : MonoBehaviour
     {
+        // ── Inspector ─────────────────────────────────────────────────
         [Header("References")]
         [SerializeField] private Transform viewerCamera;
 
         [Header("Visibility")]
-        [SerializeField] private bool showInLowRisk = false;
+        [SerializeField] private bool  showInLowRisk          = false;
         [SerializeField] private float maxVisibleAngleDegrees = 70f;
 
         [Header("World Placement")]
         [SerializeField] private float markerDistanceMeters = 12f;
         [SerializeField] private float verticalOffsetMeters = -0.15f;
-        [SerializeField] private float smoothSpeed = 10f;
+        [SerializeField] private float smoothSpeed          = 8f;
 
         [Header("Box Style")]
-        [SerializeField] private Vector2 mediumBoxSize = new Vector2(180f, 90f);
-        [SerializeField] private Vector2 highBoxSize = new Vector2(220f, 105f);
-        [SerializeField] private float worldScale = 0.0035f;
-        [SerializeField] private float cornerLength = 34f;
-        [SerializeField] private float cornerThickness = 4f;
-        [SerializeField] private float backgroundAlpha = 0.12f;
-        [SerializeField] private float highPulseSpeed = 4f;
-        [SerializeField] private float highPulseAmount = 0.18f;
+        [SerializeField] private Vector2 mediumBoxSize    = new Vector2(180f, 90f);
+        [SerializeField] private Vector2 highBoxSize      = new Vector2(220f, 110f);
+        [SerializeField] private float   worldScale       = 0.0035f;
+        [SerializeField] private float   cornerLength     = 28f;
+        [SerializeField] private float   cornerThickness  = 2.5f;
+        [SerializeField] private float   backgroundAlpha  = 0.10f;
+        [SerializeField] private float   fadeSpeed        = 6f;
+
+        [Header("HIGH Pulse")]
+        [SerializeField] private float highPulseSpeed  = 3.5f;
+        [SerializeField] private float highPulseAmount = 0.14f;
+
+        [Header("Scan Line")]
+        [SerializeField] private bool  showScanLine       = true;
+        [SerializeField] private float scanLineSpeed      = 0.8f;   // cycles per second
+        [SerializeField] private float scanLineThickness  = 2f;
+        [SerializeField] private float scanLineAlpha      = 0.35f;
 
         [Header("Label")]
-        [SerializeField] private int mediumFontSize = 20;
-        [SerializeField] private int highFontSize = 24;
+        [SerializeField] private int mediumFontSize = 18;
+        [SerializeField] private int highFontSize   = 22;
 
-        private Canvas canvas;
-        private CanvasGroup canvasGroup;
-        private RectTransform rootRect;
+        // ── Runtime refs ─────────────────────────────────────────────
+        private Canvas      _canvas;
+        private CanvasGroup _canvasGroup;
+        private RectTransform _rootRect;
 
-        private RectTransform boxRoot;
-        private RawImage background;
+        private RectTransform _boxRoot;
+        private RawImage      _background;
 
-        private RawImage topLeftH;
-        private RawImage topLeftV;
-        private RawImage topRightH;
-        private RawImage topRightV;
-        private RawImage bottomLeftH;
-        private RawImage bottomLeftV;
-        private RawImage bottomRightH;
-        private RawImage bottomRightV;
+        private RawImage _tl_h, _tl_v;
+        private RawImage _tr_h, _tr_v;
+        private RawImage _bl_h, _bl_v;
+        private RawImage _br_h, _br_v;
 
-        private TMP_Text label;
+        private RawImage _scanLine;
+        private TMP_Text _label;
 
-        private Vector3 targetWorldPosition;
-        private Vector2 targetBoxSize;
-        private RiskLevel currentRisk;
-        private bool visible;
+        // ── State ─────────────────────────────────────────────────────
+        private Vector3   _targetWorldPos;
+        private Vector2   _targetBoxSize;
+        private RiskLevel _currentRisk;
+        private bool      _visible;
+        private float     _scanPhase;
+
+        // ── Unity ─────────────────────────────────────────────────────
 
         private void Awake()
         {
-            canvas = GetComponent<Canvas>();
-            canvasGroup = GetComponent<CanvasGroup>();
-            rootRect = GetComponent<RectTransform>();
+            _canvas      = GetComponent<Canvas>();
+            _canvasGroup = GetComponent<CanvasGroup>();
+            _rootRect    = GetComponent<RectTransform>();
 
-            canvas.renderMode = RenderMode.WorldSpace;
-            canvas.sortingOrder = 100;
+            _canvas.renderMode   = RenderMode.WorldSpace;
+            _canvas.sortingOrder = 100;
 
             if (viewerCamera == null && Camera.main != null)
             {
-                viewerCamera = Camera.main.transform;
-                canvas.worldCamera = Camera.main;
+                viewerCamera       = Camera.main.transform;
+                _canvas.worldCamera = Camera.main;
             }
 
             transform.localScale = Vector3.one * worldScale;
 
             BuildBox();
-            HideImmediate();
+            SetAlpha(0f);
         }
 
         private void Update()
         {
-            if (!visible || viewerCamera == null)
-            {
-                return;
-            }
+            if (viewerCamera == null) return;
 
+            // Smooth fade
+            float targetAlpha = _visible ? 1f : 0f;
+            float current     = _canvasGroup.alpha;
+            _canvasGroup.alpha = Mathf.MoveTowards(current, targetAlpha, Time.deltaTime * fadeSpeed);
+
+            if (!_visible && _canvasGroup.alpha <= 0.01f) return;
+
+            // Position tracking
             transform.position = Vector3.Lerp(
                 transform.position,
-                targetWorldPosition,
-                Time.deltaTime * smoothSpeed
-            );
+                _targetWorldPos,
+                Time.deltaTime * smoothSpeed);
 
-            Vector3 lookDirection = transform.position - viewerCamera.position;
+            // Always face camera
+            Vector3 dir = transform.position - viewerCamera.position;
+            if (dir.sqrMagnitude > 0.001f)
+                transform.rotation = Quaternion.LookRotation(dir.normalized, Vector3.up);
 
-            if (lookDirection.sqrMagnitude > 0.001f)
-            {
-                transform.rotation = Quaternion.LookRotation(lookDirection.normalized, Vector3.up);
-            }
+            // Box size
+            _boxRoot.sizeDelta = Vector2.Lerp(
+                _boxRoot.sizeDelta,
+                _targetBoxSize,
+                Time.deltaTime * smoothSpeed);
 
-            boxRoot.sizeDelta = Vector2.Lerp(
-                boxRoot.sizeDelta,
-                targetBoxSize,
-                Time.deltaTime * smoothSpeed
-            );
-
-            if (currentRisk == RiskLevel.High)
+            // Pulse scale (HIGH only)
+            if (_currentRisk == RiskLevel.High)
             {
                 float pulse = 1f + Mathf.Sin(Time.time * highPulseSpeed) * highPulseAmount;
-                boxRoot.localScale = new Vector3(pulse, pulse, 1f);
+                _boxRoot.localScale = new Vector3(pulse, pulse, 1f);
             }
             else
             {
-                boxRoot.localScale = Vector3.Lerp(
-                    boxRoot.localScale,
+                _boxRoot.localScale = Vector3.Lerp(
+                    _boxRoot.localScale,
                     Vector3.one,
-                    Time.deltaTime * smoothSpeed
-                );
+                    Time.deltaTime * smoothSpeed);
+            }
+
+            // Scan line (HIGH only)
+            if (_scanLine != null)
+            {
+                bool scanActive = _currentRisk == RiskLevel.High && showScanLine && _visible;
+                _scanLine.gameObject.SetActive(scanActive);
+
+                if (scanActive)
+                {
+                    _scanPhase = (_scanPhase + Time.deltaTime * scanLineSpeed) % 1f;
+                    float boxH = _boxRoot.sizeDelta.y;
+                    float yPos = Mathf.Lerp(-boxH * 0.5f, boxH * 0.5f, _scanPhase);
+
+                    var rt = _scanLine.rectTransform;
+                    rt.anchoredPosition = new Vector2(0f, yPos);
+                    rt.sizeDelta        = new Vector2(_boxRoot.sizeDelta.x, scanLineThickness);
+                }
             }
         }
 
-        /// <summary>
-        /// Recibe los datos actuales y decide si la caja debe mostrarse.
-        /// </summary>
+        // ── Public API ────────────────────────────────────────────────
+
         public void RenderBox(TrafficSnapshot snapshot)
         {
             if (snapshot == null || !HasTarget(snapshot))
             {
-                Hide();
+                _visible = false;
                 return;
             }
 
             if (snapshot.RiskLevel == RiskLevel.Low && !showInLowRisk)
             {
-                Hide();
+                _visible = false;
                 return;
             }
 
             if (!snapshot.TargetViewOffsetDegrees.HasValue)
             {
-                Hide();
+                _visible = false;
                 return;
             }
 
             double offset = snapshot.TargetViewOffsetDegrees.Value;
-
             if (Math.Abs(offset) > maxVisibleAngleDegrees)
             {
-                Hide();
+                _visible = false;
                 return;
             }
 
-            currentRisk = snapshot.RiskLevel;
+            _currentRisk     = snapshot.RiskLevel;
+            _targetWorldPos  = ComputeWorldPosition(offset);
+            _targetBoxSize   = snapshot.RiskLevel == RiskLevel.High ? highBoxSize : mediumBoxSize;
 
-            Color riskColor = GetRiskColor(snapshot.RiskLevel);
+            Color riskColor = HudVisualTheme.GetRiskColor(snapshot.RiskLevel);
             ApplyColor(riskColor, snapshot.RiskLevel);
 
-            targetWorldPosition = CalculateWorldPosition(offset);
-            targetBoxSize = snapshot.RiskLevel == RiskLevel.High
-                ? highBoxSize
-                : mediumBoxSize;
-
-            if (label != null)
+            if (_label != null)
             {
-                label.text = BuildLabel(snapshot);
-                label.color = riskColor;
-                label.fontSize = snapshot.RiskLevel == RiskLevel.High
-                    ? highFontSize
-                    : mediumFontSize;
+                _label.text     = BuildLabel(snapshot);
+                _label.color    = riskColor;
+                _label.fontSize = snapshot.RiskLevel == RiskLevel.High ? highFontSize : mediumFontSize;
             }
 
-            Show();
+            _visible = true;
         }
 
-        /// <summary>
-        /// Calcula una posición en el mundo delante de la cámara según el ángulo horizontal del target.
-        /// </summary>
-        private Vector3 CalculateWorldPosition(double offsetDegrees)
-        {
-            Quaternion horizontalRotation = Quaternion.AngleAxis((float)offsetDegrees, Vector3.up);
-            Vector3 direction = horizontalRotation * viewerCamera.forward;
+        // ── Internal build ────────────────────────────────────────────
 
-            return viewerCamera.position +
-                   direction.normalized * markerDistanceMeters +
-                   Vector3.up * verticalOffsetMeters;
-        }
-
-        /// <summary>
-        /// Construye visualmente la caja con esquinas y etiqueta.
-        /// </summary>
         private void BuildBox()
         {
-            rootRect.sizeDelta = highBoxSize;
+            _rootRect.sizeDelta = highBoxSize;
 
-            boxRoot = CreateRect("TargetLockBox", transform);
-            boxRoot.anchorMin = new Vector2(0.5f, 0.5f);
-            boxRoot.anchorMax = new Vector2(0.5f, 0.5f);
-            boxRoot.pivot = new Vector2(0.5f, 0.5f);
-            boxRoot.anchoredPosition = Vector2.zero;
-            boxRoot.sizeDelta = mediumBoxSize;
+            // Box root
+            _boxRoot                     = CreateRect("TargetLockBox", transform);
+            _boxRoot.anchorMin           = new Vector2(0.5f, 0.5f);
+            _boxRoot.anchorMax           = new Vector2(0.5f, 0.5f);
+            _boxRoot.pivot               = new Vector2(0.5f, 0.5f);
+            _boxRoot.anchoredPosition    = Vector2.zero;
+            _boxRoot.sizeDelta           = mediumBoxSize;
 
-            background = CreateRawImage("Background", boxRoot);
-            StretchToParent(background.rectTransform);
+            // Background
+            _background = CreateImage("Background", _boxRoot);
+            Stretch(_background.rectTransform);
 
-            topLeftH = CreateRawImage("TopLeft_H", boxRoot);
-            topLeftV = CreateRawImage("TopLeft_V", boxRoot);
-            topRightH = CreateRawImage("TopRight_H", boxRoot);
-            topRightV = CreateRawImage("TopRight_V", boxRoot);
-            bottomLeftH = CreateRawImage("BottomLeft_H", boxRoot);
-            bottomLeftV = CreateRawImage("BottomLeft_V", boxRoot);
-            bottomRightH = CreateRawImage("BottomRight_H", boxRoot);
-            bottomRightV = CreateRawImage("BottomRight_V", boxRoot);
-
+            // Corners
+            _tl_h = CreateImage("TL_H", _boxRoot);
+            _tl_v = CreateImage("TL_V", _boxRoot);
+            _tr_h = CreateImage("TR_H", _boxRoot);
+            _tr_v = CreateImage("TR_V", _boxRoot);
+            _bl_h = CreateImage("BL_H", _boxRoot);
+            _bl_v = CreateImage("BL_V", _boxRoot);
+            _br_h = CreateImage("BR_H", _boxRoot);
+            _br_v = CreateImage("BR_V", _boxRoot);
             LayoutCorners();
 
-            label = CreateLabel("TargetLabel", boxRoot);
+            // Scan line (hidden by default)
+            _scanLine                    = CreateImage("ScanLine", _boxRoot);
+            _scanLine.color              = new Color(1f, 1f, 1f, scanLineAlpha);
+            var slRect                   = _scanLine.rectTransform;
+            slRect.anchorMin             = new Vector2(0.5f, 0.5f);
+            slRect.anchorMax             = new Vector2(0.5f, 0.5f);
+            slRect.pivot                 = new Vector2(0.5f, 0.5f);
+            slRect.sizeDelta             = new Vector2(mediumBoxSize.x, scanLineThickness);
+            slRect.anchoredPosition      = Vector2.zero;
+            _scanLine.gameObject.SetActive(false);
+
+            // Label
+            _label = CreateLabel("TargetLabel", _boxRoot);
         }
 
         private void LayoutCorners()
         {
-            SetCorner(topLeftH.rectTransform, 0f, 1f, cornerLength, cornerThickness, cornerLength * 0.5f, -cornerThickness * 0.5f);
-            SetCorner(topLeftV.rectTransform, 0f, 1f, cornerThickness, cornerLength, cornerThickness * 0.5f, -cornerLength * 0.5f);
+            float cl = cornerLength;
+            float ct = cornerThickness;
 
-            SetCorner(topRightH.rectTransform, 1f, 1f, cornerLength, cornerThickness, -cornerLength * 0.5f, -cornerThickness * 0.5f);
-            SetCorner(topRightV.rectTransform, 1f, 1f, cornerThickness, cornerLength, -cornerThickness * 0.5f, -cornerLength * 0.5f);
-
-            SetCorner(bottomLeftH.rectTransform, 0f, 0f, cornerLength, cornerThickness, cornerLength * 0.5f, cornerThickness * 0.5f);
-            SetCorner(bottomLeftV.rectTransform, 0f, 0f, cornerThickness, cornerLength, cornerThickness * 0.5f, cornerLength * 0.5f);
-
-            SetCorner(bottomRightH.rectTransform, 1f, 0f, cornerLength, cornerThickness, -cornerLength * 0.5f, cornerThickness * 0.5f);
-            SetCorner(bottomRightV.rectTransform, 1f, 0f, cornerThickness, cornerLength, -cornerThickness * 0.5f, cornerLength * 0.5f);
+            SetCorner(_tl_h.rectTransform, 0f, 1f,  cl, ct,  cl * 0.5f, -ct * 0.5f);
+            SetCorner(_tl_v.rectTransform, 0f, 1f,  ct, cl,  ct * 0.5f, -cl * 0.5f);
+            SetCorner(_tr_h.rectTransform, 1f, 1f,  cl, ct, -cl * 0.5f, -ct * 0.5f);
+            SetCorner(_tr_v.rectTransform, 1f, 1f,  ct, cl, -ct * 0.5f, -cl * 0.5f);
+            SetCorner(_bl_h.rectTransform, 0f, 0f,  cl, ct,  cl * 0.5f,  ct * 0.5f);
+            SetCorner(_bl_v.rectTransform, 0f, 0f,  ct, cl,  ct * 0.5f,  cl * 0.5f);
+            SetCorner(_br_h.rectTransform, 1f, 0f,  cl, ct, -cl * 0.5f,  ct * 0.5f);
+            SetCorner(_br_v.rectTransform, 1f, 0f,  ct, cl, -ct * 0.5f,  cl * 0.5f);
         }
 
-        private void SetCorner(
-            RectTransform rect,
-            float anchorX,
-            float anchorY,
-            float width,
-            float height,
-            float posX,
-            float posY)
+        private static void SetCorner(RectTransform rt, float ax, float ay,
+                                      float w, float h, float px, float py)
         {
-            rect.anchorMin = new Vector2(anchorX, anchorY);
-            rect.anchorMax = new Vector2(anchorX, anchorY);
-            rect.pivot = new Vector2(0.5f, 0.5f);
-            rect.sizeDelta = new Vector2(width, height);
-            rect.anchoredPosition = new Vector2(posX, posY);
+            rt.anchorMin        = new Vector2(ax, ay);
+            rt.anchorMax        = new Vector2(ax, ay);
+            rt.pivot            = new Vector2(0.5f, 0.5f);
+            rt.sizeDelta        = new Vector2(w, h);
+            rt.anchoredPosition = new Vector2(px, py);
         }
 
-        private TMP_Text CreateLabel(string objectName, Transform parent)
+        private Vector3 ComputeWorldPosition(double offsetDegrees)
         {
-            GameObject child = new GameObject(objectName, typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
-            child.transform.SetParent(parent, false);
+            Quaternion rot = Quaternion.AngleAxis((float)offsetDegrees, Vector3.up);
+            Vector3    dir = rot * viewerCamera.forward;
 
-            RectTransform rect = child.GetComponent<RectTransform>();
-            rect.anchorMin = Vector2.zero;
-            rect.anchorMax = Vector2.one;
-            rect.offsetMin = new Vector2(10f, 10f);
-            rect.offsetMax = new Vector2(-10f, -10f);
-
-            TMP_Text text = child.GetComponent<TMP_Text>();
-            text.alignment = TextAlignmentOptions.Center;
-            text.fontStyle = FontStyles.Bold;
-            text.enableWordWrapping = false;
-            text.raycastTarget = false;
-
-            return text;
+            return viewerCamera.position
+                 + dir.normalized * markerDistanceMeters
+                 + Vector3.up * verticalOffsetMeters;
         }
 
-        private RawImage CreateRawImage(string objectName, Transform parent)
+        private string BuildLabel(TrafficSnapshot snapshot)
         {
-            GameObject child = new GameObject(objectName, typeof(RectTransform), typeof(CanvasRenderer), typeof(RawImage));
-            child.transform.SetParent(parent, false);
+            string callsign = string.IsNullOrWhiteSpace(snapshot.RelevantCallsign)
+                ? "TARGET"
+                : snapshot.RelevantCallsign;
 
-            RawImage image = child.GetComponent<RawImage>();
-            image.texture = Texture2D.whiteTexture;
-            image.raycastTarget = false;
+            string distance = string.IsNullOrWhiteSpace(snapshot.NearestDistance)
+                              || snapshot.NearestDistance == "--"
+                ? ""
+                : snapshot.NearestDistance;
 
-            return image;
+            bool hasTcpa = !string.IsNullOrWhiteSpace(snapshot.TimeToClosestApproach)
+                        && snapshot.TimeToClosestApproach != "--";
+
+            if (snapshot.RiskLevel == RiskLevel.High && hasTcpa)
+                return $"{callsign}\nIN {snapshot.TimeToClosestApproach}";
+
+            if (!string.IsNullOrWhiteSpace(distance))
+                return $"{callsign}\n{distance}";
+
+            return callsign;
         }
-
-        private RectTransform CreateRect(string objectName, Transform parent)
-        {
-            GameObject child = new GameObject(objectName, typeof(RectTransform));
-            child.transform.SetParent(parent, false);
-            return child.GetComponent<RectTransform>();
-        }
-
-        private void StretchToParent(RectTransform rect)
-        {
-            rect.anchorMin = Vector2.zero;
-            rect.anchorMax = Vector2.one;
-            rect.offsetMin = Vector2.zero;
-            rect.offsetMax = Vector2.zero;
-        }
-
-       private string BuildLabel(TrafficSnapshot snapshot)
-{
-    string callsign = string.IsNullOrWhiteSpace(snapshot.RelevantCallsign)
-        ? "TARGET"
-        : snapshot.RelevantCallsign;
-
-    string distance = string.IsNullOrWhiteSpace(snapshot.NearestDistance)
-        ? "--"
-        : snapshot.NearestDistance;
-
-    string timeToConflict = string.IsNullOrWhiteSpace(snapshot.TimeToClosestApproach) ||
-                            snapshot.TimeToClosestApproach == "--"
-        ? ""
-        : snapshot.TimeToClosestApproach;
-
-    if (snapshot.RiskLevel == RiskLevel.High)
-    {
-        if (!string.IsNullOrWhiteSpace(timeToConflict))
-        {
-            return $"{callsign}\n{distance}\nIN {timeToConflict}";
-        }
-
-        return $"{callsign}\n{distance}";
-    }
-
-    if (snapshot.RiskLevel == RiskLevel.Medium)
-    {
-        if (!string.IsNullOrWhiteSpace(timeToConflict))
-        {
-            return $"{callsign}\n{distance}\nIN {timeToConflict}";
-        }
-
-        return $"{callsign}\n{distance}";
-    }
-
-    return $"{callsign}\n{distance}";
-}
 
         private void ApplyColor(Color color, RiskLevel risk)
         {
-            SetColor(topLeftH, color);
-            SetColor(topLeftV, color);
-            SetColor(topRightH, color);
-            SetColor(topRightV, color);
-            SetColor(bottomLeftH, color);
-            SetColor(bottomLeftV, color);
-            SetColor(bottomRightH, color);
-            SetColor(bottomRightV, color);
+            Color[] corners = { color, color, color, color, color, color, color, color };
+            RawImage[] images = { _tl_h, _tl_v, _tr_h, _tr_v, _bl_h, _bl_v, _br_h, _br_v };
+            for (int i = 0; i < images.Length; i++)
+                if (images[i] != null) images[i].color = corners[i];
 
-            if (background != null)
+            if (_background != null)
             {
-                Color bg = color;
-                bg.a = risk == RiskLevel.High
-                    ? backgroundAlpha * 1.8f
-                    : backgroundAlpha;
+                Color bg  = color;
+                bg.a      = risk == RiskLevel.High ? backgroundAlpha * 2f : backgroundAlpha;
+                _background.color = bg;
+            }
 
-                background.color = bg;
+            if (_scanLine != null)
+            {
+                Color sc  = color;
+                sc.a      = scanLineAlpha;
+                _scanLine.color = sc;
             }
         }
 
-        private void SetColor(RawImage image, Color color)
+        private void SetAlpha(float a)
         {
-            if (image != null)
+            if (_canvasGroup != null)
             {
-                image.color = color;
+                _canvasGroup.alpha          = a;
+                _canvasGroup.interactable   = false;
+                _canvasGroup.blocksRaycasts = false;
             }
         }
 
-        private Color GetRiskColor(RiskLevel riskLevel)
+        private static bool HasTarget(TrafficSnapshot s)
         {
-            switch (riskLevel)
-            {
-                case RiskLevel.High:
-                    return new Color(1f, 0.2f, 0.2f);
-
-                case RiskLevel.Medium:
-                    return new Color(1f, 0.85f, 0.25f);
-
-                default:
-                    return new Color(0.85f, 0.85f, 0.85f);
-            }
+            return s != null && !string.IsNullOrWhiteSpace(s.RelevantCallsign);
         }
 
-        private bool HasTarget(TrafficSnapshot snapshot)
+        // ── UI helpers ────────────────────────────────────────────────
+
+        private static RectTransform CreateRect(string name, Transform parent)
         {
-            return snapshot != null &&
-                   !string.IsNullOrWhiteSpace(snapshot.RelevantCallsign);
+            var go = new GameObject(name, typeof(RectTransform));
+            go.transform.SetParent(parent, false);
+            return go.GetComponent<RectTransform>();
         }
 
-        private void Show()
+        private static RawImage CreateImage(string name, Transform parent)
         {
-            visible = true;
-
-            if (canvasGroup != null)
-            {
-                canvasGroup.alpha = 1f;
-                canvasGroup.interactable = false;
-                canvasGroup.blocksRaycasts = false;
-            }
+            var go  = new GameObject(name, typeof(RectTransform), typeof(CanvasRenderer), typeof(RawImage));
+            go.transform.SetParent(parent, false);
+            var img = go.GetComponent<RawImage>();
+            img.texture       = Texture2D.whiteTexture;
+            img.raycastTarget = false;
+            return img;
         }
 
-        private void Hide()
+        private static TMP_Text CreateLabel(string name, Transform parent)
         {
-            visible = false;
+            var go = new GameObject(name,
+                typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
+            go.transform.SetParent(parent, false);
 
-            if (canvasGroup != null)
-            {
-                canvasGroup.alpha = 0f;
-                canvasGroup.interactable = false;
-                canvasGroup.blocksRaycasts = false;
-            }
+            var rt          = go.GetComponent<RectTransform>();
+            rt.anchorMin    = Vector2.zero;
+            rt.anchorMax    = Vector2.one;
+            rt.offsetMin    = new Vector2(8f,  8f);
+            rt.offsetMax    = new Vector2(-8f, -8f);
+
+            var tmp         = go.GetComponent<TMP_Text>();
+            tmp.alignment   = TextAlignmentOptions.Center;
+            tmp.fontStyle   = FontStyles.Bold;
+            tmp.enableWordWrapping = false;
+            tmp.raycastTarget     = false;
+            return tmp;
         }
 
-        private void HideImmediate()
+        private static void Stretch(RectTransform rt)
         {
-            visible = false;
-            Hide();
+            rt.anchorMin  = Vector2.zero;
+            rt.anchorMax  = Vector2.one;
+            rt.offsetMin  = Vector2.zero;
+            rt.offsetMax  = Vector2.zero;
         }
     }
 }

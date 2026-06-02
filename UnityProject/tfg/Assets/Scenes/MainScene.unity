@@ -1336,8 +1336,13 @@ MonoBehaviour:
   cornerLength: 34
   cornerThickness: 4
   backgroundAlpha: 0.12
+  fadeSpeed: 6
   highPulseSpeed: 4
   highPulseAmount: 0.18
+  showScanLine: 1
+  scanLineSpeed: 0.8
+  scanLineThickness: 2
+  scanLineAlpha: 0.35
   mediumFontSize: 20
   highFontSize: 24
 --- !u!225 &1835194829
@@ -1440,7 +1445,7 @@ MonoBehaviour:
   logRawJsonPreview: 0
   logConflictPredictionToConsole: 1
   conflictLogIntervalSeconds: 3
-  useConflictTestScenario: 1
+  useConflictTestScenario: 0
   conflictTestScenario: 2
   includeRealTrafficWithTestScenario: 0
 --- !u!4 &2058325481
