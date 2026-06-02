@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TFG AR Visor GPS</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #05070a;
+      color: #e8f6ff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+    }
+
+    .card {
+      width: 90%;
+      max-width: 420px;
+      padding: 24px;
+      border: 1px solid rgba(120, 220, 255, 0.3);
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.05);
+      box-shadow: 0 0 30px rgba(0, 180, 255, 0.12);
+    }
+
+    h1 {
+      font-size: 22px;
+      margin-bottom: 8px;
+    }
+
+    .status {
+      margin-top: 16px;
+      padding: 12px;
+      border-radius: 12px;
+      background: rgba(0, 255, 180, 0.08);
+      color: #8fffdc;
+      font-weight: bold;
+    }
+
+    .data {
+      margin-top: 16px;
+      font-size: 14px;
+      line-height: 1.6;
+      color: #c8d8e6;
+    }
+
+    button {
+      width: 100%;
+      margin-top: 18px;
+      padding: 14px;
+      border: none;
+      border-radius: 12px;
+      background: #29d3ff;
+      color: #001018;
+      font-weight: bold;
+      font-size: 16px;
+    }
+
+    .small {
+      margin-top: 14px;
+      font-size: 12px;
+      color: #8a9aaa;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>TFG AR Visor GPS</h1>
+    <p>Esta página comparte la ubicación del móvil con las Meta Quest.</p>
+
+    <button onclick="startGps()">Iniciar GPS</button>
+
+    <div id="status" class="status">Esperando inicio...</div>
+    <div id="data" class="data"></div>
+
+    <div class="small">
+      Mantén esta página abierta mientras uses el visor.
+    </div>
+  </div>
+
+  <script>
+    let watchId = null;
+
+    function setStatus(text) {
+      document.getElementById("status").innerText = text;
+    }
+
+    function setData(position) {
+      const coords = position.coords;
+
+      document.getElementById("data").innerHTML = `
+        Lat: ${coords.latitude.toFixed(6)}<br>
+        Lon: ${coords.longitude.toFixed(6)}<br>
+        Alt: ${coords.altitude ?? "No disponible"}<br>
+        Precisión: ${coords.accuracy?.toFixed(1)} m<br>
+        Última actualización: ${new Date().toLocaleTimeString()}
+      `;
+    }
+
+    async function sendGps(position) {
+      const coords = position.coords;
+
+      const payload = {
+        lat: coords.latitude,
+        lon: coords.longitude,
+        alt: coords.altitude,
+        accuracy: coords.accuracy,
+        altitudeAccuracy: coords.altitudeAccuracy
+      };
+
+      const response = await fetch("/update", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        throw new Error("No se pudo enviar GPS");
+      }
+    }
+
+    function startGps() {
+      if (!navigator.geolocation) {
+        setStatus("Este móvil no soporta geolocalización.");
+        return;
+      }
+
+      setStatus("Solicitando permiso GPS...");
+
+      watchId = navigator.geolocation.watchPosition(
+        async (position) => {
+          try {
+            setData(position);
+            await sendGps(position);
+            setStatus("GPS compartido correctamente");
+          } catch (error) {
+            console.error(error);
+            setStatus("Error enviando GPS");
+          }
+        },
+        (error) => {
+          console.error(error);
+          setStatus("Error GPS: " + error.message);
+        },
+        {
+          enableHighAccuracy: true,
+          maximumAge: 1000,
+          timeout: 10000
+        }
+      );
+    }
+  </script>
+</body>
+</html>
