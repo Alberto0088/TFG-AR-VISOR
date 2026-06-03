@@ -235,10 +235,10 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   hudController: {fileID: 392099730}
-  gpsEndpointUrl: http://127.0.0.1:5000/latest
+  gpsEndpointUrl: https://tfg-ar-visor.onrender.com/latest
   refreshSeconds: 1
   requestTimeoutSeconds: 2
-  logGpsToConsole: 0
+  logGpsToConsole: 1
 --- !u!4 &294844436
 Transform:
   m_ObjectHideFlags: 0
